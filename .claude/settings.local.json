@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(grep:*)",
+      "Bash(node:*)",
+      "Bash(rm:*)",
+      "Bash(mv:*)",
+      "Bash(ls:*)",
+      "Bash(touch:*)",
+      "Bash(python:*)",
+      "Bash(cat:*)",
+      "Bash(pkill:*)",
+      "Bash(true)",
+      "Bash(timeout:*)",
+      "Bash(DEBUG=*)",
+      "Bash(chmod:*)",
+      "Bash(gtimeout:*)",
+      "Bash(find:*)",
+      "Bash(npx playwright install:*)",
+      "Bash(kill:*)",
+      "Bash(npm install:*)"
+    ],
+    "deny": []
+  }
+}

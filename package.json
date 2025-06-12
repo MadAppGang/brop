@@ -1,0 +1,27 @@
+{
+  "name": "mcp-brop",
+  "version": "1.0.0",
+  "description": "Browser Remote Operations Protocol - Chrome Extension",
+  "main": "background.js",
+  "scripts": {
+    "build": "npm run build:js",
+    "build:proto": "echo 'Protocol Buffers compilation skipped - using JSON for simplified implementation'",
+    "build:js": "echo 'JavaScript build complete - no compilation needed for extension'",
+    "dev": "echo 'Development mode - load extension directly in Chrome'",
+    "clean": "rm -rf dist/ generated/",
+    "install-protoc": "npm install -g protobufjs-cli",
+    "setup": "echo 'BROP Extension setup complete. Load the extension in Chrome developer mode.'",
+    "bridge": "node bridge_server.js",
+    "start-bridge": "node bridge_server.js"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.270"
+  },
+  "dependencies": {
+    "ws": "^8.14.2"
+  },
+  "optionalDependencies": {
+    "protobufjs": "^7.2.5",
+    "google-protobuf": "^3.21.2"
+  }
+}

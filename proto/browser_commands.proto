@@ -1,0 +1,197 @@
+syntax = "proto3";
+
+package browser_commands;
+
+// Main message wrapper for all browser operations
+message BrowserMessage {
+  string id = 1; // Unique request ID for correlation
+  oneof payload {
+    Command command = 2;
+    Response response = 3;
+  }
+}
+
+// Command sent to browser
+message Command {
+  oneof action {
+    GetConsoleLogsCommand get_console_logs = 1;
+    ExecuteConsoleCommand execute_console = 2;
+    GetScreenshotCommand get_screenshot = 3;
+    GetPageContentCommand get_page_content = 4;
+    NavigateCommand navigate = 5;
+    ClickCommand click = 6;
+    TypeCommand type = 7;
+    WaitForElementCommand wait_for_element = 8;
+    EvaluateJavaScriptCommand evaluate_js = 9;
+    GetElementCommand get_element = 10;
+  }
+}
+
+// Response from browser
+message Response {
+  bool success = 1;
+  string error = 2;
+  oneof result {
+    ConsoleLogsResponse console_logs = 3;
+    ConsoleExecutionResponse console_execution = 4;
+    ScreenshotResponse screenshot = 5;
+    PageContentResponse page_content = 6;
+    NavigationResponse navigation = 7;
+    ClickResponse click_result = 8;
+    TypeResponse type_result = 9;
+    ElementWaitResponse element_wait = 10;
+    JavaScriptResponse js_result = 11;
+    ElementResponse element = 12;
+  }
+}
+
+// Console-related commands and responses
+message GetConsoleLogsCommand {
+  int32 limit = 1; // Max number of logs to return
+  string level = 2; // Filter by log level (log, warn, error, info)
+}
+
+message ConsoleLogsResponse {
+  repeated ConsoleLog logs = 1;
+}
+
+message ConsoleLog {
+  string timestamp = 1;
+  string level = 2;
+  string message = 3;
+  string source = 4;
+  int32 line = 5;
+  int32 column = 6;
+}
+
+message ExecuteConsoleCommand {
+  string code = 1;
+  bool return_result = 2; // Whether to return the evaluation result
+}
+
+message ConsoleExecutionResponse {
+  string result = 1;
+  string error = 2;
+}
+
+// Screenshot command and response
+message GetScreenshotCommand {
+  bool full_page = 1; // Capture full page or just viewport
+  string format = 2; // png, jpeg
+  int32 quality = 3; // JPEG quality (1-100)
+}
+
+message ScreenshotResponse {
+  bytes image_data = 1;
+  string format = 2;
+  int32 width = 3;
+  int32 height = 4;
+}
+
+// Page content command and response
+message GetPageContentCommand {
+  bool include_html = 1;
+  bool include_text = 2;
+  bool include_metadata = 3;
+}
+
+message PageContentResponse {
+  string html = 1;
+  string text = 2;
+  string title = 3;
+  string url = 4;
+  repeated string links = 5;
+  repeated string images = 6;
+}
+
+// Navigation command and response
+message NavigateCommand {
+  string url = 1;
+  int32 timeout = 2; // Timeout in milliseconds
+  bool wait_for_load = 3;
+}
+
+message NavigationResponse {
+  string final_url = 1;
+  string title = 2;
+  bool loaded = 3;
+}
+
+// Click command and response
+message ClickCommand {
+  string selector = 1;
+  int32 x = 2; // Optional: click at specific coordinates
+  int32 y = 3;
+  int32 button = 4; // 0=left, 1=middle, 2=right
+  bool double_click = 5;
+}
+
+message ClickResponse {
+  bool clicked = 1;
+  string element_tag = 2;
+}
+
+// Type command and response
+message TypeCommand {
+  string selector = 1;
+  string text = 2;
+  bool clear_first = 3;
+  int32 delay = 4; // Delay between keystrokes in ms
+}
+
+message TypeResponse {
+  bool typed = 1;
+  string final_value = 2;
+}
+
+// Wait for element command and response
+message WaitForElementCommand {
+  string selector = 1;
+  int32 timeout = 2; // Timeout in milliseconds
+  bool visible = 3; // Wait for element to be visible
+  bool hidden = 4; // Wait for element to be hidden
+}
+
+message ElementWaitResponse {
+  bool found = 1;
+  bool visible = 2;
+  ElementInfo element = 3;
+}
+
+// JavaScript evaluation command and response
+message EvaluateJavaScriptCommand {
+  string code = 1;
+  bool return_by_value = 2; // Return result by value or reference
+}
+
+message JavaScriptResponse {
+  string result = 1;
+  string type = 2; // Result type (string, number, boolean, object, etc.)
+  string error = 3;
+}
+
+// Get element command and response
+message GetElementCommand {
+  string selector = 1;
+  bool get_all = 2; // Get all matching elements or just first
+}
+
+message ElementResponse {
+  repeated ElementInfo elements = 1;
+}
+
+message ElementInfo {
+  string tag_name = 1;
+  string text_content = 2;
+  string inner_html = 3;
+  map<string, string> attributes = 4;
+  BoundingBox bounding_box = 5;
+  bool visible = 6;
+}
+
+message BoundingBox {
+  double x = 1;
+  double y = 2;
+  double width = 3;
+  double height = 4;
+}

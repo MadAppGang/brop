@@ -1,0 +1,24 @@
+{
+  "name": "brop-playwright-tests",
+  "version": "1.0.0",
+  "description": "Playwright tests using BROP extension",
+  "main": "playwright_tests.js",
+  "scripts": {
+    "test": "node playwright_tests.js",
+    "test:simple": "node playwright_tests.js --simple",
+    "install-playwright": "npx playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0",
+    "puppeteer": "^24.10.0"
+  },
+  "keywords": [
+    "playwright",
+    "testing",
+    "chrome",
+    "automation",
+    "brop"
+  ],
+  "author": "",
+  "license": "MIT"
+}

@@ -1,0 +1,39 @@
+{
+  "manifest_version": 3,
+  "name": "Browser Remote Operations Protocol",
+  "version": "1.0.0",
+  "description": "Chrome extension providing WebSocket interface with Protocol Buffers for browser automation",
+  "permissions": [
+    "activeTab",
+    "tabs",
+    "storage",
+    "scripting",
+    "debugger",
+    "nativeMessaging"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background_bridge_client.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": true
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["injected.js", "logs.html", "logs.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "BROP - Browser Remote Operations"
+  }
+}
