@@ -52,6 +52,7 @@ class BROPBridgeClient {
     this.messageHandlers.set('get_chrome_extension_errors', this.handleGetChromeExtensionErrors.bind(this));
     this.messageHandlers.set('clear_extension_errors', this.handleClearExtensionErrors.bind(this));
     this.messageHandlers.set('reload_extension', this.handleReloadExtension.bind(this));
+    this.messageHandlers.set('test_reload_feature', this.handleTestReloadFeature.bind(this));
     
     // CDP command handlers
     this.cdpHandlers = new Map([
@@ -624,6 +625,10 @@ class BROPBridgeClient {
         // Pass target context to handler
         const result = await handler(params, targetId);
         console.log(`CDP command ${method} completed successfully${targetId ? ` for target ${targetId}` : ''}`);
+        
+        // Log successful CDP command
+        this.logCall(method, 'CDP', params, result, null, null);
+        
         this.sendToBridge({
           type: 'response',
           id: id,
@@ -632,6 +637,10 @@ class BROPBridgeClient {
         });
       } else {
         console.warn(`Unsupported CDP method: ${method}`);
+        
+        // Log unsupported CDP command
+        this.logCall(method, 'CDP', params, null, `Unsupported CDP method: ${method}`, null);
+        
         this.sendToBridge({
           type: 'response',
           id: id,
@@ -642,6 +651,10 @@ class BROPBridgeClient {
     } catch (error) {
       console.error(`CDP command error (${method}):`, error);
       this.logError('CDP Command Error', `${method}: ${error.message}`, error.stack);
+      
+      // Log failed CDP command
+      this.logCall(method, 'CDP', params, null, error.message, null);
+      
       this.sendToBridge({
         type: 'response',
         id: id,
@@ -671,6 +684,10 @@ class BROPBridgeClient {
       const handler = this.messageHandlers.get(commandType);
       if (handler) {
         const result = await handler(command.params || {});
+        
+        // Log successful BROP command
+        this.logCall(commandType, 'BROP', command.params, result, null, null);
+        
         this.sendToBridge({
           type: 'response',
           id: id,
@@ -683,6 +700,10 @@ class BROPBridgeClient {
     } catch (error) {
       console.error(`BROP command error (${commandType}):`, error);
       this.logError('BROP Command Error', `${commandType}: ${error.message}`, error.stack);
+      
+      // Log failed BROP command
+      this.logCall(commandType, 'BROP', command.params, null, error.message, null);
+      
       this.sendToBridge({
         type: 'response',
         id: id,
@@ -1887,6 +1908,23 @@ class BROPBridgeClient {
       };
     }
   }
+
+  async handleTestReloadFeature(params) {
+    // This is a NEW feature added specifically to test extension reload
+    const timestamp = new Date().toISOString();
+    const message = params?.message || 'Hello from the NEW reload test feature!';
+    
+    console.log(`[BROP] 🆕 NEW FEATURE CALLED: test_reload_feature at ${timestamp}`);
+    
+    return {
+      success: true,
+      message: message,
+      timestamp: timestamp,
+      feature_version: '1.0.0',
+      reload_test: true,
+      note: 'This feature was added to test extension reload mechanism'
+    };
+  }
   
   async cdpDOMGetDocument(params) { /* Implementation */ }
   async cdpDOMQuerySelector(params) { /* Implementation */ }
@@ -1949,7 +1987,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
   } else if (messageType === 'GET_LOGS') {
     const limit = message.limit || 100;
-    const logs = bropBridgeClient.callLogs.slice(0, limit);
+    const logs = bropBridgeClient.callLogs.slice(-limit); // Get last N entries (most recent)
     sendResponse({ logs: logs });
   } else if (messageType === 'CLEAR_LOGS') {
     bropBridgeClient.callLogs = [];

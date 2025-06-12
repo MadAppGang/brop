@@ -53,6 +53,10 @@ class BROPBridgeServer {
     };
     
     this.running = false;
+    
+    // Log storage for debugging endpoint
+    this.logs = [];
+    this.maxLogs = 1000; // Keep last 1000 log entries
   }
 
   getTimestamp() {
@@ -60,7 +64,28 @@ class BROPBridgeServer {
   }
 
   log(message, ...args) {
-    console.log(`[${this.getTimestamp()}] ${message}`, ...args);
+    const timestamp = this.getTimestamp();
+    const logMessage = `[${timestamp}] ${message}`;
+    const fullArgs = args.length > 0 ? [logMessage, ...args] : [logMessage];
+    
+    // Print to console
+    console.log(...fullArgs);
+    
+    // Store in memory for debugging endpoint
+    const logEntry = {
+      timestamp: timestamp,
+      message: message,
+      args: args,
+      fullMessage: args.length > 0 ? `${message} ${args.join(' ')}` : message,
+      level: 'info'
+    };
+    
+    this.logs.push(logEntry);
+    
+    // Keep only the last maxLogs entries
+    if (this.logs.length > this.maxLogs) {
+      this.logs.splice(0, this.logs.length - this.maxLogs);
+    }
   }
 
   getNextMessageId() {
@@ -141,6 +166,32 @@ class BROPBridgeServer {
       const tabs = this.getBrowserTabs();
       res.writeHead(200);
       res.end(JSON.stringify(tabs));
+    } else if (pathname === '/logs') {
+      // Return bridge server logs for debugging
+      const urlParams = new URLSearchParams(url.parse(req.url).query);
+      const limit = parseInt(urlParams.get('limit')) || this.logs.length;
+      const level = urlParams.get('level'); // filter by log level if provided
+      
+      let filteredLogs = this.logs;
+      
+      // Filter by level if specified
+      if (level) {
+        filteredLogs = this.logs.filter(log => log.level === level);
+      }
+      
+      // Limit results
+      const logsToReturn = filteredLogs.slice(-limit);
+      
+      const response = {
+        total: this.logs.length,
+        filtered: filteredLogs.length,
+        returned: logsToReturn.length,
+        maxLogs: this.maxLogs,
+        logs: logsToReturn
+      };
+      
+      res.writeHead(200);
+      res.end(JSON.stringify(response, null, 2));
     } else {
       res.writeHead(404);
       res.end(JSON.stringify({ error: 'Not found' }));

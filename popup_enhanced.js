@@ -290,7 +290,7 @@ class BROPPopupEnhanced {
 
       // Search filter
       if (searchFilter) {
-        const searchText = `${log.method} ${log.params} ${log.result} ${log.error}`.toLowerCase();
+        const searchText = `${log.method || ''} ${log.params || ''} ${log.result || ''} ${log.error || ''}`.toLowerCase();
         if (!searchText.includes(searchFilter)) {
           return false;
         }
@@ -324,7 +324,43 @@ class BROPPopupEnhanced {
 
     const logsHtml = this.filteredLogs.map(log => this.createLogEntryHtml(log)).join('');
     container.innerHTML = logsHtml;
+    
+    // Add click event listeners to log entries (CSP-compliant)
+    this.setupLogClickHandlers();
+    
     console.log(`[BROP Popup] Logs displayed successfully`);
+  }
+
+  setupLogClickHandlers() {
+    // Remove any existing listeners to prevent duplicates
+    const logEntries = document.querySelectorAll('.log-entry-compact[data-log-id]');
+    
+    console.log(`[BROP Popup] Setting up click handlers for ${logEntries.length} log entries`);
+    
+    logEntries.forEach(entry => {
+      const logId = entry.getAttribute('data-log-id');
+      if (logId) {
+        // Add click event listener
+        entry.addEventListener('click', () => {
+          console.log(`[BROP Popup] Log entry clicked: ${logId}`);
+          this.openLogDetails(logId);
+        });
+        
+        // Add visual feedback
+        entry.style.cursor = 'pointer';
+        
+        // Add hover effect
+        entry.addEventListener('mouseenter', () => {
+          entry.style.backgroundColor = '#f0f8ff';
+        });
+        
+        entry.addEventListener('mouseleave', () => {
+          entry.style.backgroundColor = '';
+        });
+      }
+    });
+    
+    console.log(`[BROP Popup] Click handlers setup complete`);
   }
 
   escapeHtml(text) {
@@ -339,7 +375,7 @@ class BROPPopupEnhanced {
   createLogEntryHtml(log) {
     const time = new Date(log.timestamp).toLocaleTimeString();
     const successClass = log.success ? 'success' : 'error';
-    const typeClass = log.type.toLowerCase();
+    const typeClass = (log.type || 'unknown').toLowerCase();
     const statusIcon = log.success ? '✅' : '❌';
     
     // Extract context from params for one-liner display
@@ -358,7 +394,7 @@ class BROPPopupEnhanced {
     }
 
     return `
-      <div class="log-entry-compact ${successClass} ${typeClass}" onclick="window.openLogDetails('${log.id}')" title="Click to view full details">
+      <div class="log-entry-compact ${successClass} ${typeClass}" data-log-id="${log.id}" title="Click to view full details">
         <div class="log-compact-header">
           <div class="log-compact-left">
             <span class="status-icon">${statusIcon}</span>
@@ -366,7 +402,7 @@ class BROPPopupEnhanced {
             <span class="log-context">${this.escapeHtml(context)}</span>
           </div>
           <div class="log-compact-right">
-            <span class="log-type ${log.type}">${log.type}</span>
+            <span class="log-type ${log.type || 'unknown'}">${log.type || 'UNKNOWN'}</span>
             <span class="log-time-compact">${time}</span>
             ${log.duration ? `<span class="log-duration-compact">${log.duration}ms</span>` : ''}
           </div>
@@ -437,19 +473,50 @@ class BROPPopupEnhanced {
 
 
   openLogDetails(logId) {
-    // Find the log entry
-    const log = this.logs.find(l => l.id === logId);
-    if (!log) {
-      console.error('Log entry not found:', logId);
-      return;
-    }
-
-    // Create full-screen log details page URL with log data
-    const logData = encodeURIComponent(JSON.stringify(log));
-    const detailsUrl = chrome.runtime.getURL(`logs.html?log=${logData}`);
+    console.log('[BROP Popup] openLogDetails called with logId:', logId);
     
-    // Open in new tab
-    chrome.tabs.create({ url: detailsUrl });
+    try {
+      // Find the log entry
+      const log = this.logs.find(l => l.id === logId);
+      if (!log) {
+        console.error('[BROP Popup] Log entry not found:', logId);
+        return;
+      }
+      
+      console.log('[BROP Popup] Found log entry:', log);
+
+      // Create full-screen log details page URL with log data
+      const logData = encodeURIComponent(JSON.stringify(log));
+      const detailsUrl = chrome.runtime.getURL(`logs.html?log=${logData}`);
+      
+      console.log('[BROP Popup] Generated URL:', detailsUrl);
+      
+      // Open in new tab
+      console.log('[BROP Popup] Attempting to create new tab...');
+      chrome.tabs.create({ url: detailsUrl }, (tab) => {
+        if (chrome.runtime.lastError) {
+          console.error('[BROP Popup] Failed to create tab:', chrome.runtime.lastError);
+          // Fallback to window.open
+          console.log('[BROP Popup] Trying fallback with window.open...');
+          window.open(detailsUrl, '_blank');
+        } else {
+          console.log('[BROP Popup] Successfully created tab:', tab.id);
+        }
+      });
+      
+    } catch (error) {
+      console.error('[BROP Popup] Error in openLogDetails:', error);
+      
+      // Emergency fallback - try opening logs.html without data
+      try {
+        const fallbackUrl = chrome.runtime.getURL('logs.html');
+        console.log('[BROP Popup] Fallback URL:', fallbackUrl);
+        window.open(fallbackUrl, '_blank');
+      } catch (fallbackError) {
+        console.error('[BROP Popup] Fallback also failed:', fallbackError);
+        alert('Failed to open log details. Check console for errors.');
+      }
+    }
   }
 
   async exportLogs() {
@@ -581,13 +648,6 @@ class BROPPopupEnhanced {
     }
   }
 }
-
-// Global function for log detail opening (needed for onclick handlers)
-window.openLogDetails = function(logId) {
-  if (window.bropPopup) {
-    window.bropPopup.openLogDetails(logId);
-  }
-};
 
 // Initialize popup when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
