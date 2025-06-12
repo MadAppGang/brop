@@ -35,8 +35,8 @@ async function debugWorkflow() {
         console.log('\\n📋 Step 2: Clearing previous errors and logs...');
         
         const clearResult = await sendCommand(ws, {
-            type: 'clear_extension_errors',
-            clearLogs: true  // Also clear call logs
+            method: 'clear_extension_errors',
+            params: { clearLogs: true }  // Also clear call logs
         });
         
         if (clearResult.success) {
@@ -50,12 +50,12 @@ async function debugWorkflow() {
         console.log('\\n📋 Step 3: Running test commands to generate activity...');
         
         const testCommands = [
-            { name: 'Extension Errors Check', cmd: { type: 'get_extension_errors', limit: 5 } },
-            { name: 'Navigation Test', cmd: { type: 'navigate', url: 'https://example.com' } },
-            { name: 'Screenshot Test', cmd: { type: 'get_screenshot', format: 'png' } },
-            { name: 'Page Content Test', cmd: { type: 'get_page_content' } },
-            { name: 'Simplified DOM Test', cmd: { type: 'get_simplified_dom', max_depth: 2 } },
-            { name: 'Invalid Command Test', cmd: { type: 'this_command_does_not_exist' } }
+            { name: 'Extension Errors Check', cmd: { method: 'get_extension_errors', params: { limit: 5 } } },
+            { name: 'Navigation Test', cmd: { method: 'navigate', params: { url: 'https://example.com' } } },
+            { name: 'Screenshot Test', cmd: { method: 'get_screenshot', params: { format: 'png' } } },
+            { name: 'Page Content Test', cmd: { method: 'get_page_content', params: {} } },
+            { name: 'Simplified DOM Test', cmd: { method: 'get_simplified_dom', params: { max_depth: 2 } } },
+            { name: 'Invalid Command Test', cmd: { method: 'this_command_does_not_exist', params: {} } }
         ];
         
         const results = [];
@@ -85,8 +85,8 @@ async function debugWorkflow() {
         console.log('\\n📋 Step 4: Checking captured errors...');
         
         const errorCheckResult = await sendCommand(ws, {
-            type: 'get_extension_errors',
-            limit: 20
+            method: 'get_extension_errors',
+            params: { limit: 20 }
         });
         
         if (errorCheckResult.success) {
@@ -171,17 +171,18 @@ async function debugWorkflow() {
     }
 }
 
-function sendCommand(ws, command) {
+function sendCommand(ws, commandData) {
     return new Promise((resolve, reject) => {
         messageId++;
         const id = `debug_workflow_${messageId}`;
         const message = {
             id: id,
-            command: command
+            method: commandData.method,
+            params: commandData.params || {}
         };
         
         const timeout = setTimeout(() => {
-            reject(new Error(`Command ${command.type} timeout`));
+            reject(new Error(`Command ${commandData.method} timeout`));
         }, 10000);
         
         const messageHandler = (data) => {

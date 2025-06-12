@@ -902,10 +902,8 @@ ID: ${this.escapeHtml(log.id || 'N/A')}</div>
       // Test console execution
       const response = await chrome.tabs.sendMessage(activeTab.id, {
         type: 'BROP_EXECUTE',
-        command: {
-          type: 'execute_console',
-          params: { code: 'console.log("BROP test successful"); "Test completed"' }
-        },
+        method: 'execute_console',
+        params: { code: 'console.log("BROP test successful"); "Test completed"' },
         id: Date.now().toString()
       });
 

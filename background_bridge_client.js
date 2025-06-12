@@ -322,45 +322,32 @@ class BROPBridgeClient {
   }
 
   async processBROPCommand(message) {
-    const { id, command, method, params } = message;
+    const { id, method, params } = message;
     
-    // Handle both message formats:
-    // 1. New format: { id, command: { type, params } }
-    // 2. Legacy format: { id, method, params }
-    const commandType = command?.type || method;
-    const commandParams = command?.params || params;
-    
-    // Debug: Log the incoming message structure
     console.log('🔧 DEBUG processBROPCommand:', {
       messageKeys: Object.keys(message),
-      hasCommand: !!command,
-      hasMethod: !!method,
-      commandType: commandType,
-      commandTypeType: typeof commandType,
-      format: command ? 'new format (command.type)' : 'legacy format (method)',
+      method: method,
+      methodType: typeof method,
       fullMessage: JSON.stringify(message).substring(0, 200)
     });
     
-    // Fix undefined commandType
-    if (!commandType) {
-      console.error('🔧 ERROR: commandType is undefined!', {
-        message: message,
-        command: command,
-        method: method
+    if (!method) {
+      console.error('🔧 ERROR: method is undefined!', {
+        message: message
       });
       
       this.sendToBridge({
         type: 'response',
         id: id,
         success: false,
-        error: 'Invalid command: missing method or command.type'
+        error: 'Invalid command: missing method'
       });
       return;
     }
 
     // Check if service is enabled
     if (!this.enabled) {
-      console.log(`BROP command ignored (service disabled): ${commandType}`);
+      console.log(`BROP command ignored (service disabled): ${method}`);
       this.sendToBridge({
         type: 'response',
         id: id,
@@ -371,12 +358,12 @@ class BROPBridgeClient {
     }
 
     try {
-      const handler = this.messageHandlers.get(commandType);
+      const handler = this.messageHandlers.get(method);
       if (handler) {
-        const result = await handler(commandParams || {});
+        const result = await handler(params || {});
 
         // Log successful BROP command
-        this.logCall(commandType, 'BROP', commandParams, result, null, null);
+        this.logCall(method, 'BROP', params, result, null, null);
 
         this.sendToBridge({
           type: 'response',
@@ -385,14 +372,14 @@ class BROPBridgeClient {
           result: result
         });
       } else {
-        throw new Error(`Unsupported BROP command: ${commandType}`);
+        throw new Error(`Unsupported BROP command: ${method}`);
       }
     } catch (error) {
-      console.error(`BROP command error (${commandType}):`, error);
-      this.logError('BROP Command Error', `${commandType}: ${error.message}`, error.stack);
+      console.error(`BROP command error (${method}):`, error);
+      this.logError('BROP Command Error', `${method}: ${error.message}`, error.stack);
 
       // Log failed BROP command
-      this.logCall(commandType, 'BROP', commandParams, null, error.message, null);
+      this.logCall(method, 'BROP', params, null, error.message, null);
 
       this.sendToBridge({
         type: 'response',
@@ -1291,15 +1278,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log(`🔧 DEBUG: Received GET_LOGS runtime message for tab ${tabId}`);
     
     {
-      // Fallback to extension call logs  
+      // Return extension call logs with full original format
       const logs = bropBridgeClient.callLogs.slice(-limit);
       console.log(`🔧 DEBUG: No console messages for tab ${tabId}, returning ${logs.length} extension logs`);
       sendResponse({ 
         success: true,
         logs: logs.map(log => ({
+          // Preserve original fields for popup display
+          id: log.id,
+          method: log.method,
+          type: log.type,
+          params: log.params,
+          result: log.result,
+          error: log.error,
+          success: log.success,
+          timestamp: log.timestamp,
+          duration: log.duration,
+          // Also include the console-compatible fields
           level: log.success ? 'info' : 'error',
           message: `${log.method}: ${log.success ? 'success' : log.error}`,
-          timestamp: log.timestamp,
           source: 'extension_background'
         })),
         source: 'extension_fallback'
@@ -1320,9 +1317,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     bropBridgeClient.processBROPCommand(message).then(result => {
       const duration = Date.now() - startTime;
       bropBridgeClient.logCall(
-        message.command?.type || 'unknown',
+        message.method || 'unknown',
         'BROP',
-        message.command?.params,
+        message.params,
         result,
         null,
         duration
@@ -1331,9 +1328,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }).catch(error => {
       const duration = Date.now() - startTime;
       bropBridgeClient.logCall(
-        message.command?.type || 'unknown',
+        message.method || 'unknown',
         'BROP',
-        message.command?.params,
+        message.params,
         null,
         error.message,
         duration

@@ -574,7 +574,7 @@ class BROPBridgeServer {
   processBropMessage(client, message) {
     try {
       const data = JSON.parse(message);
-      const commandType = data.command?.type;
+      const commandType = data.method || data.command?.type;
       const messageId = data.id || this.getNextMessageId();
       
       this.log(`🔧 BROP: ${commandType}`);
