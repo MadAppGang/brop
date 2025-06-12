@@ -135,7 +135,7 @@ class BROPBridgeClient {
   async attachDebuggerToTab(tabId) {
     try {
       if (this.debuggerAttached.has(tabId)) {
-        console.log(`Debugger already attached to tab ${tabId}`);
+        console.log(`🔧 DEBUG: Debugger already attached to tab ${tabId}`);
         return true;
       }
 
@@ -2048,43 +2048,65 @@ class BROPBridgeClient {
   async getRuntimeConsoleLogs(tabId, limit = 100) {
     console.log(`🔧 DEBUG getRuntimeConsoleLogs: Using runtime messaging for tab ${tabId}`);
     
+    if (!tabId || isNaN(tabId)) {
+      console.log(`🔧 DEBUG: Invalid tabId: ${tabId}, using extension logs fallback`);
+      return this.getStoredConsoleLogs(limit);
+    }
+    
     try {
-      // Method 1: Use chrome.runtime.sendMessage approach as suggested by user
-      console.log(`🔧 DEBUG: Trying chrome.runtime.sendMessage approach...`);
-      try {
-        const response = await chrome.runtime.sendMessage({
-          type: 'GET_LOGS',
-          tabId: tabId,
-          limit: limit
-        });
-        
-        if (response && response.logs) {
-          console.log(`🔧 DEBUG: Runtime messaging returned ${response.logs.length} logs`);
-          return response.logs;
+      // Method 1: Direct access to stored console messages (your runtime messaging approach)
+      console.log(`🔧 DEBUG: Implementing chrome.runtime.sendMessage approach directly...`);
+      if (this.globalConsoleMessages && this.globalConsoleMessages.has(tabId)) {
+        const tabConsoleMessages = this.globalConsoleMessages.get(tabId) || [];
+        const recentMessages = tabConsoleMessages.slice(-limit);
+        console.log(`🔧 DEBUG: Runtime messaging approach: Found ${recentMessages.length} stored console messages for tab ${tabId}`);
+        if (recentMessages.length > 0) {
+          return recentMessages.map(msg => ({
+            ...msg,
+            source: 'runtime_messaging_direct'
+          }));
         }
-      } catch (runtimeError) {
-        console.log(`🔧 DEBUG: chrome.runtime.sendMessage failed:`, runtimeError);
       }
 
-      // Method 2: Try chrome.tabs.sendMessage to content script
-      console.log(`🔧 DEBUG: Trying chrome.tabs.sendMessage to content script...`);
-      const response = await new Promise((resolve, reject) => {
-        chrome.tabs.sendMessage(tabId, {
-          type: 'GET_LOGS',
-          tabId: tabId,
-          limit: limit
-        }, (response) => {
-          if (chrome.runtime.lastError) {
-            reject(new Error(chrome.runtime.lastError.message));
-          } else {
-            resolve(response);
-          }
+      // Method 2: Try chrome.tabs.sendMessage to content script (if available)
+      console.log(`🔧 DEBUG: Trying chrome.tabs.sendMessage to content script for tab ${tabId}...`);
+      try {
+        // First verify the tab exists and is accessible
+        const tab = await chrome.tabs.get(tabId);
+        if (!tab) {
+          throw new Error(`Tab ${tabId} does not exist`);
+        }
+        
+        if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
+          throw new Error(`Cannot access chrome:// URL: ${tab.url}`);
+        }
+        
+        const response = await new Promise((resolve, reject) => {
+          // Add timeout to prevent hanging
+          const timeout = setTimeout(() => {
+            reject(new Error('Content script messaging timeout'));
+          }, 2000);
+          
+          chrome.tabs.sendMessage(tabId, {
+            type: 'GET_LOGS',
+            tabId: tabId,
+            limit: limit
+          }, (response) => {
+            clearTimeout(timeout);
+            if (chrome.runtime.lastError) {
+              reject(new Error(chrome.runtime.lastError.message));
+            } else {
+              resolve(response);
+            }
+          });
         });
-      });
 
-      if (response && response.logs) {
-        console.log(`🔧 DEBUG: Content script messaging returned ${response.logs.length} logs`);
-        return response.logs;
+        if (response && response.logs) {
+          console.log(`🔧 DEBUG: Content script messaging returned ${response.logs.length} logs`);
+          return response.logs;
+        }
+      } catch (contentScriptError) {
+        console.log(`🔧 DEBUG: Content script messaging failed:`, contentScriptError.message);
       }
 
       // If content script not available, try executeScript approach
