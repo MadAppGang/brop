@@ -13,6 +13,10 @@ class BROPBridgeClient {
     this.callLogs = [];
     this.maxLogEntries = 1000;
     
+    // Error collection system
+    this.extensionErrors = [];
+    this.maxErrorEntries = 100;
+    
     this.bridgeUrl = 'ws://localhost:9224'; // Extension server port
     
     // Track target discovery state
@@ -26,6 +30,7 @@ class BROPBridgeClient {
     this.messageHandlers = new Map();
     this.setupMessageHandlers();
     this.setupDebuggerHandlers();
+    this.setupErrorHandlers();
     this.loadSettings();
     this.connectToBridge();
   }
@@ -42,6 +47,11 @@ class BROPBridgeClient {
     this.messageHandlers.set('wait_for_element', this.handleWaitForElement.bind(this));
     this.messageHandlers.set('evaluate_js', this.handleEvaluateJS.bind(this));
     this.messageHandlers.set('get_element', this.handleGetElement.bind(this));
+    this.messageHandlers.set('get_simplified_dom', this.handleGetSimplifiedDOM.bind(this));
+    this.messageHandlers.set('get_extension_errors', this.handleGetExtensionErrors.bind(this));
+    this.messageHandlers.set('get_chrome_extension_errors', this.handleGetChromeExtensionErrors.bind(this));
+    this.messageHandlers.set('clear_extension_errors', this.handleClearExtensionErrors.bind(this));
+    this.messageHandlers.set('reload_extension', this.handleReloadExtension.bind(this));
     
     // CDP command handlers
     this.cdpHandlers = new Map([
@@ -204,6 +214,115 @@ class BROPBridgeClient {
     }
   }
 
+  setupErrorHandlers() {
+    // Enhanced error capture system
+    
+    // 1. Capture uncaught errors in the extension
+    self.addEventListener('error', (event) => {
+      this.logError('Uncaught Error', event.error?.message || event.message, event.error?.stack, {
+        filename: event.filename,
+        lineno: event.lineno,
+        colno: event.colno
+      });
+    });
+
+    // 2. Capture unhandled promise rejections
+    self.addEventListener('unhandledrejection', (event) => {
+      this.logError('Unhandled Promise Rejection', event.reason?.message || String(event.reason), event.reason?.stack);
+    });
+
+    // 3. Capture Chrome runtime errors
+    if (chrome.runtime.onStartup) {
+      chrome.runtime.onStartup.addListener(() => {
+        if (chrome.runtime.lastError) {
+          this.logError('Runtime Startup Error', chrome.runtime.lastError.message);
+        }
+      });
+    }
+
+    // 4. Capture debugger attachment errors
+    chrome.debugger.onDetach.addListener((source, reason) => {
+      if (reason && reason !== 'target_closed') {
+        this.logError('Debugger Detach Error', `Debugger detached from tab ${source.tabId}: ${reason}`, null, {
+          tabId: source.tabId,
+          reason: reason
+        });
+      }
+    });
+
+    // 5. Capture tab errors
+    chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+      // Check if we had debugger attached to this tab
+      if (this.debuggerAttached.has(tabId)) {
+        this.logError('Tab Closed with Debugger', `Tab ${tabId} was closed while debugger was attached`, null, {
+          tabId: tabId,
+          removeInfo: removeInfo
+        });
+        
+        // Clean up stale debugger attachment
+        this.debuggerAttached.delete(tabId);
+        this.debuggerSessions.delete(tabId);
+      }
+    });
+
+    // 6. Monitor for Chrome API errors
+    this.setupChromeAPIErrorMonitoring();
+  }
+
+  setupChromeAPIErrorMonitoring() {
+    // Wrap Chrome API calls to catch errors
+    const originalTabsUpdate = chrome.tabs.update;
+    chrome.tabs.update = async (...args) => {
+      try {
+        return await originalTabsUpdate.apply(chrome.tabs, args);
+      } catch (error) {
+        this.logError('Chrome Tabs API Error', `tabs.update failed: ${error.message}`, error.stack, {
+          api: 'chrome.tabs.update',
+          args: args
+        });
+        throw error;
+      }
+    };
+
+    const originalDebuggerAttach = chrome.debugger.attach;
+    chrome.debugger.attach = async (...args) => {
+      try {
+        return await originalDebuggerAttach.apply(chrome.debugger, args);
+      } catch (error) {
+        this.logError('Chrome Debugger API Error', `debugger.attach failed: ${error.message}`, error.stack, {
+          api: 'chrome.debugger.attach',
+          args: args
+        });
+        throw error;
+      }
+    };
+  }
+
+  logError(type, message, stack = null, context = {}) {
+    const errorEntry = {
+      id: `error_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: Date.now(),
+      type: type,
+      message: message,
+      stack: stack,
+      url: globalThis.location?.href || 'Extension Background',
+      userAgent: navigator.userAgent,
+      context: context
+    };
+
+    this.extensionErrors.unshift(errorEntry);
+    
+    // Keep only recent errors
+    if (this.extensionErrors.length > this.maxErrorEntries) {
+      this.extensionErrors = this.extensionErrors.slice(0, this.maxErrorEntries);
+    }
+
+    // Also log to console for debugging
+    console.error(`[BROP Error] ${type}: ${message}`, stack ? `\nStack: ${stack}` : '');
+    
+    this.saveSettings();
+  }
+
   async detachDebuggerFromAllTabs() {
     try {
       const detachPromises = [];
@@ -281,9 +400,10 @@ class BROPBridgeClient {
 
   async loadSettings() {
     try {
-      const result = await chrome.storage.local.get(['brop_enabled', 'brop_logs']);
+      const result = await chrome.storage.local.get(['brop_enabled', 'brop_logs', 'brop_errors']);
       this.enabled = result.brop_enabled !== false;
       this.callLogs = result.brop_logs || [];
+      this.extensionErrors = result.brop_errors || [];
       console.log(`BROP bridge client loaded: ${this.enabled ? 'enabled' : 'disabled'}`);
     } catch (error) {
       console.error('Error loading BROP settings:', error);
@@ -294,7 +414,8 @@ class BROPBridgeClient {
     try {
       await chrome.storage.local.set({
         'brop_enabled': this.enabled,
-        'brop_logs': this.callLogs.slice(-this.maxLogEntries)
+        'brop_logs': this.callLogs.slice(-this.maxLogEntries),
+        'brop_errors': this.extensionErrors.slice(-this.maxErrorEntries)
       });
     } catch (error) {
       console.error('Error saving BROP settings:', error);
@@ -520,6 +641,7 @@ class BROPBridgeClient {
       }
     } catch (error) {
       console.error(`CDP command error (${method}):`, error);
+      this.logError('CDP Command Error', `${method}: ${error.message}`, error.stack);
       this.sendToBridge({
         type: 'response',
         id: id,
@@ -560,6 +682,7 @@ class BROPBridgeClient {
       }
     } catch (error) {
       console.error(`BROP command error (${commandType}):`, error);
+      this.logError('BROP Command Error', `${commandType}: ${error.message}`, error.stack);
       this.sendToBridge({
         type: 'response',
         id: id,
@@ -1504,6 +1627,267 @@ class BROPBridgeClient {
   async handleWaitForElement(params) { /* Implementation */ }
   async handleEvaluateJS(params) { /* Implementation */ }
   async handleGetElement(params) { /* Implementation */ }
+  
+  async handleGetSimplifiedDOM(params) {
+    // Forward simplified DOM request to active tab's content script
+    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!activeTab) {
+      throw new Error('No active tab found');
+    }
+
+    try {
+      // Send message to content script
+      const result = await chrome.tabs.sendMessage(activeTab.id, {
+        type: 'BROP_EXECUTE',
+        command: {
+          type: 'get_simplified_dom',
+          params: params
+        },
+        id: `simplified_dom_${Date.now()}`
+      });
+
+      if (result.success) {
+        return result.result;
+      } else {
+        throw new Error(result.error || 'Failed to get simplified DOM');
+      }
+    } catch (error) {
+      console.error('Simplified DOM request failed:', error);
+      throw new Error(`Simplified DOM error: ${error.message}`);
+    }
+  }
+
+  async handleGetExtensionErrors(params) {
+    const limit = params?.limit || 50;
+    const errors = this.extensionErrors.slice(0, limit);
+    
+    return {
+      errors: errors,
+      total_errors: this.extensionErrors.length,
+      max_stored: this.maxErrorEntries,
+      extension_info: {
+        name: chrome.runtime.getManifest()?.name || 'BROP Extension',
+        version: chrome.runtime.getManifest()?.version || '1.0.0',
+        id: chrome.runtime.id
+      }
+    };
+  }
+
+  async handleGetChromeExtensionErrors(params) {
+    const errors = [];
+    
+    try {
+      // Method 1: Check chrome.runtime.lastError if available
+      if (chrome.runtime.lastError) {
+        errors.push({
+          type: 'Chrome Runtime Error',
+          message: chrome.runtime.lastError.message,
+          timestamp: Date.now(),
+          source: 'chrome.runtime.lastError'
+        });
+      }
+      
+      // Method 2: Try to access extension management API for error details
+      if (chrome.management) {
+        try {
+          const extensionInfo = await new Promise((resolve, reject) => {
+            chrome.management.getSelf((info) => {
+              if (chrome.runtime.lastError) {
+                reject(new Error(chrome.runtime.lastError.message));
+              } else {
+                resolve(info);
+              }
+            });
+          });
+          
+          // Note: Chrome doesn't provide direct API access to extension console errors
+          // This is a limitation of the Chrome Extension API
+        } catch (error) {
+          errors.push({
+            type: 'Management API Error',
+            message: error.message,
+            timestamp: Date.now(),
+            source: 'chrome.management.getSelf'
+          });
+        }
+      }
+      
+      // Method 3: Check for specific Chrome extension error patterns
+      // We'll need to capture these through other means since Chrome doesn't expose them directly
+      
+      // Method 4: Check debugger attachment errors
+      const debuggerErrors = [];
+      for (const tabId of this.debuggerAttached) {
+        try {
+          // Try to query the tab to see if it still exists
+          const tab = await chrome.tabs.get(tabId);
+          if (!tab) {
+            debuggerErrors.push({
+              type: 'Debugger Tab Error',
+              message: `Tab ${tabId} no longer exists but debugger still attached`,
+              timestamp: Date.now(),
+              source: 'debugger_tab_check',
+              tabId: tabId
+            });
+          }
+        } catch (error) {
+          debuggerErrors.push({
+            type: 'Debugger Tab Error', 
+            message: `Failed to access tab ${tabId}: ${error.message}`,
+            timestamp: Date.now(),
+            source: 'debugger_tab_check',
+            tabId: tabId
+          });
+        }
+      }
+      
+      errors.push(...debuggerErrors);
+      
+      // Method 5: Check for invalid debugger sessions
+      for (const [tabId, session] of this.debuggerSessions) {
+        try {
+          const tab = await chrome.tabs.get(tabId);
+          if (!tab) {
+            errors.push({
+              type: 'Debugger Session Error',
+              message: `Debugger session exists for non-existent tab ${tabId}`,
+              timestamp: Date.now(),
+              source: 'debugger_session_check',
+              tabId: tabId
+            });
+          }
+        } catch (error) {
+          errors.push({
+            type: 'Debugger Session Error',
+            message: `Invalid debugger session for tab ${tabId}: ${error.message}`,
+            timestamp: Date.now(), 
+            source: 'debugger_session_check',
+            tabId: tabId
+          });
+        }
+      }
+      
+      // Method 6: Get all current tabs and check for inconsistencies
+      try {
+        const allTabs = await chrome.tabs.query({});
+        const existingTabIds = new Set(allTabs.map(tab => tab.id));
+        
+        // Check for debugger attachments to non-existent tabs
+        for (const attachedTabId of this.debuggerAttached) {
+          if (!existingTabIds.has(attachedTabId)) {
+            errors.push({
+              type: 'Stale Debugger Attachment',
+              message: `Debugger attached to non-existent tab ${attachedTabId}`,
+              timestamp: Date.now(),
+              source: 'tab_consistency_check',
+              tabId: attachedTabId
+            });
+          }
+        }
+        
+      } catch (error) {
+        errors.push({
+          type: 'Tab Query Error',
+          message: `Failed to query tabs: ${error.message}`,
+          timestamp: Date.now(),
+          source: 'chrome.tabs.query'
+        });
+      }
+      
+      return {
+        chrome_errors: errors,
+        total_chrome_errors: errors.length,
+        debugger_attached_tabs: Array.from(this.debuggerAttached),
+        debugger_sessions: Array.from(this.debuggerSessions.keys()),
+        note: 'Chrome Extension API does not expose console errors directly. These are detected issues based on extension state.',
+        limitation: 'To see actual Chrome extension console errors, check chrome://extensions/ > Developer mode > Errors button for this extension'
+      };
+      
+    } catch (error) {
+      return {
+        chrome_errors: [{
+          type: 'Chrome Error Detection Failed',
+          message: error.message,
+          timestamp: Date.now(),
+          source: 'handleGetChromeExtensionErrors'
+        }],
+        total_chrome_errors: 1,
+        error: `Failed to check Chrome extension errors: ${error.message}`
+      };
+    }
+  }
+
+  async handleClearExtensionErrors(params) {
+    const clearedCount = this.extensionErrors.length;
+    
+    // Clear all extension errors
+    this.extensionErrors = [];
+    
+    // Also clear call logs if requested
+    if (params?.clearLogs) {
+      const clearedLogs = this.callLogs.length;
+      this.callLogs = [];
+      
+      // Save cleared state
+      await this.saveSettings();
+      
+      return {
+        success: true,
+        cleared_errors: clearedCount,
+        cleared_logs: clearedLogs,
+        message: `Cleared ${clearedCount} errors and ${clearedLogs} logs`
+      };
+    } else {
+      // Save cleared state
+      await this.saveSettings();
+      
+      return {
+        success: true,
+        cleared_errors: clearedCount,
+        message: `Cleared ${clearedCount} extension errors`
+      };
+    }
+  }
+
+  async handleReloadExtension(params) {
+    const reloadReason = params?.reason || 'Manual reload requested';
+    const delay = params?.delay || 1000; // Default 1 second delay
+    
+    try {
+      // Log the reload event
+      this.logError('Extension Reload', `Extension reload requested: ${reloadReason}`, null, {
+        reason: reloadReason,
+        delay: delay,
+        timestamp: Date.now()
+      });
+      
+      // Save current state before reload
+      await this.saveSettings();
+      
+      // Schedule the reload
+      setTimeout(() => {
+        console.log(`[BROP] Reloading extension: ${reloadReason}`);
+        chrome.runtime.reload();
+      }, delay);
+      
+      return {
+        success: true,
+        message: `Extension will reload in ${delay}ms`,
+        reason: reloadReason,
+        scheduled_time: Date.now() + delay
+      };
+      
+    } catch (error) {
+      this.logError('Extension Reload Error', `Failed to reload extension: ${error.message}`, error.stack);
+      
+      return {
+        success: false,
+        error: error.message,
+        message: 'Failed to schedule extension reload'
+      };
+    }
+  }
+  
   async cdpDOMGetDocument(params) { /* Implementation */ }
   async cdpDOMQuerySelector(params) { /* Implementation */ }
   async cdpInputDispatchMouseEvent(params) { /* Implementation */ }

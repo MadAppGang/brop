@@ -4,7 +4,6 @@
   "version": "1.0.0",
   "description": "Chrome extension providing WebSocket interface with Protocol Buffers for browser automation",
   "permissions": [
-    "activeTab",
     "tabs",
     "storage",
     "scripting",

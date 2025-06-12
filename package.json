@@ -7,15 +7,22 @@
     "build": "npm run build:js",
     "build:proto": "echo 'Protocol Buffers compilation skipped - using JSON for simplified implementation'",
     "build:js": "echo 'JavaScript build complete - no compilation needed for extension'",
-    "dev": "echo 'Development mode - load extension directly in Chrome'",
+    "dev": "nodemon",
+    "dev:auto": "node bridge-auto-reload.js",
+    "dev:legacy": "node start-dev.js",
+    "debug:clear": "node debug-clear.js",
+    "debug:errors": "node get-extension-errors.js",
+    "debug:reload": "node debug-reload.js",
+    "debug:workflow": "node debug-workflow.js",
     "clean": "rm -rf dist/ generated/",
     "install-protoc": "npm install -g protobufjs-cli",
     "setup": "echo 'BROP Extension setup complete. Load the extension in Chrome developer mode.'",
-    "bridge": "node bridge_server.js",
-    "start-bridge": "node bridge_server.js"
+    "bridge": "node bridge-server/bridge_server.js",
+    "start-bridge": "node bridge-server/bridge_server.js"
   },
   "devDependencies": {
-    "@types/chrome": "^0.0.270"
+    "@types/chrome": "^0.0.270",
+    "nodemon": "^3.0.2"
   },
   "dependencies": {
     "ws": "^8.14.2"

@@ -24,6 +24,7 @@ message Command {
     WaitForElementCommand wait_for_element = 8;
     EvaluateJavaScriptCommand evaluate_js = 9;
     GetElementCommand get_element = 10;
+    GetSimplifiedDOMCommand get_simplified_dom = 11;
   }
 }
 
@@ -42,6 +43,7 @@ message Response {
     ElementWaitResponse element_wait = 10;
     JavaScriptResponse js_result = 11;
     ElementResponse element = 12;
+    SimplifiedDOMResponse simplified_dom = 13;
   }
 }
 
@@ -194,4 +196,39 @@ message BoundingBox {
   double y = 2;
   double width = 3;
   double height = 4;
+}
+
+// Simplified DOM command and response - optimized for AI interaction
+message GetSimplifiedDOMCommand {
+  int32 max_depth = 1; // Maximum depth to traverse (default: 5)
+  bool include_hidden = 2; // Include hidden elements (default: false)
+  bool include_text_nodes = 3; // Include text content (default: true)
+  bool include_coordinates = 4; // Include bounding boxes (default: true)
+  repeated string focus_selectors = 5; // Focus on specific areas (optional)
+}
+
+message SimplifiedDOMResponse {
+  SimplifiedDOMNode root = 1;
+  int32 total_interactive_elements = 2;
+  repeated string suggested_selectors = 3; // AI-friendly selectors for common actions
+  string page_structure_summary = 4; // Brief description of page layout
+}
+
+message SimplifiedDOMNode {
+  string tag = 1; // HTML tag name
+  string role = 2; // Semantic role (button, link, input, etc.)
+  string selector = 3; // CSS selector to target this element
+  string text = 4; // Visible text content
+  string placeholder = 5; // Placeholder text for inputs
+  string value = 6; // Current value for inputs
+  string type = 7; // Input type, button type, etc.
+  string href = 8; // Link destination
+  string id = 9; // Element ID
+  repeated string classes = 10; // CSS classes
+  bool interactive = 11; // Can be clicked/typed into
+  bool visible = 12; // Is currently visible
+  bool enabled = 13; // Is currently enabled
+  BoundingBox position = 14; // Element position and size
+  repeated SimplifiedDOMNode children = 15; // Child elements
+  string ai_description = 16; // Human-readable description for AI
 }

@@ -1,0 +1,38 @@
+{
+  "name": "@brop/stagehand-integration",
+  "version": "1.0.0",
+  "description": "Stagehand integration for BROP (Browser Remote Operations Protocol)",
+  "main": "index.js",
+  "scripts": {
+    "test": "node examples/basic-example.js",
+    "test:ai": "node test-with-ai.js",
+    "demo": "node examples/stagehand-demo.js",
+    "dev": "node examples/development-example.js"
+  },
+  "keywords": [
+    "stagehand",
+    "brop",
+    "browser",
+    "automation",
+    "ai",
+    "playwright",
+    "chrome-extension"
+  ],
+  "author": "BROP Team",
+  "license": "MIT",
+  "dependencies": {
+    "@browserbasehq/stagehand": "^1.14.0",
+    "dotenv": "^16.5.0",
+    "playwright": "^1.40.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/mcp-brop"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

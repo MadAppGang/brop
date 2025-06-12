@@ -239,24 +239,40 @@ class BROPPopupEnhanced {
 
   async loadLogs() {
     try {
+      console.log('[BROP Popup] Loading logs...');
       const response = await chrome.runtime.sendMessage({ 
         type: 'GET_LOGS', 
         limit: 100 
       });
       
+      console.log('[BROP Popup] Logs response:', response);
+      
       if (response && response.logs) {
         this.logs = response.logs;
+        console.log(`[BROP Popup] Loaded ${this.logs.length} logs`);
+        this.filterLogs();
+      } else {
+        console.log('[BROP Popup] No logs in response or response is null');
+        this.logs = [];
         this.filterLogs();
       }
     } catch (error) {
-      console.error('Failed to load logs:', error);
+      console.error('[BROP Popup] Failed to load logs:', error);
+      this.logs = [];
+      this.filterLogs();
     }
   }
 
   filterLogs() {
-    const typeFilter = document.getElementById('log-filter').value;
-    const statusFilter = document.getElementById('status-filter').value;
-    const searchFilter = document.getElementById('search-filter').value.toLowerCase();
+    const typeFilter = document.getElementById('log-filter')?.value || 'all';
+    const statusFilter = document.getElementById('status-filter')?.value || 'all';
+    const searchFilter = document.getElementById('search-filter')?.value?.toLowerCase() || '';
+
+    console.log(`[BROP Popup] Filtering ${this.logs.length} logs with filters:`, {
+      type: typeFilter,
+      status: statusFilter,
+      search: searchFilter
+    });
 
     this.filteredLogs = this.logs.filter(log => {
       // Type filter
@@ -283,19 +299,32 @@ class BROPPopupEnhanced {
       return true;
     });
 
+    console.log(`[BROP Popup] Filtered to ${this.filteredLogs.length} logs`);
     this.displayLogs();
   }
 
   displayLogs() {
     const container = document.getElementById('logs-container');
     
+    if (!container) {
+      console.error('[BROP Popup] logs-container element not found');
+      return;
+    }
+    
+    console.log(`[BROP Popup] Displaying ${this.filteredLogs.length} filtered logs`);
+    
     if (this.filteredLogs.length === 0) {
-      container.innerHTML = '<div class="empty-logs">No logs match your filters.</div>';
+      if (this.logs.length === 0) {
+        container.innerHTML = '<div class="empty-logs">No call logs yet. Make some API calls to see them here.</div>';
+      } else {
+        container.innerHTML = '<div class="empty-logs">No logs match your filters.</div>';
+      }
       return;
     }
 
     const logsHtml = this.filteredLogs.map(log => this.createLogEntryHtml(log)).join('');
     container.innerHTML = logsHtml;
+    console.log(`[BROP Popup] Logs displayed successfully`);
   }
 
   escapeHtml(text) {
@@ -311,33 +340,45 @@ class BROPPopupEnhanced {
     const time = new Date(log.timestamp).toLocaleTimeString();
     const successClass = log.success ? 'success' : 'error';
     const typeClass = log.type.toLowerCase();
+    const statusIcon = log.success ? '✅' : '❌';
     
-    let details = '';
-    if (log.params && log.params !== 'undefined') {
-      details += `Params: ${this.escapeHtml(log.params)}\n`;
-    }
-    if (log.result && log.result !== 'undefined') {
-      details += `Result: ${this.escapeHtml(log.result)}\n`;
-    }
-    if (log.error) {
-      details += `Error: ${this.escapeHtml(log.error)}`;
+    // Extract context from params for one-liner display
+    let context = 'No params';
+    try {
+      if (log.params && log.params !== 'undefined') {
+        const params = JSON.parse(log.params);
+        if (params.url) context = `→ ${this.truncateText(params.url, 30)}`;
+        else if (params.selector) context = `🎯 ${this.truncateText(params.selector, 25)}`;
+        else if (params.script) context = `📜 ${this.truncateText(params.script, 25)}`;
+        else if (params.text) context = `"${this.truncateText(params.text, 20)}"`;
+        else context = `${Object.keys(params).slice(0, 2).join(', ')}`;
+      }
+    } catch (e) {
+      context = this.truncateText(log.params, 30);
     }
 
     return `
-      <div class="log-entry ${successClass} ${typeClass}">
-        <div class="log-header">
-          <div>
-            <span class="log-method">${this.escapeHtml(log.method)}</span>
-            <span class="log-type ${log.type}">${log.type}</span>
+      <div class="log-entry-compact ${successClass} ${typeClass}" onclick="window.openLogDetails('${log.id}')" title="Click to view full details">
+        <div class="log-compact-header">
+          <div class="log-compact-left">
+            <span class="status-icon">${statusIcon}</span>
+            <span class="log-method-compact">${this.escapeHtml(log.method)}</span>
+            <span class="log-context">${this.escapeHtml(context)}</span>
           </div>
-          <div>
-            <span class="log-time">${time}</span>
-            ${log.duration ? `<span class="log-duration">${log.duration}ms</span>` : ''}
+          <div class="log-compact-right">
+            <span class="log-type ${log.type}">${log.type}</span>
+            <span class="log-time-compact">${time}</span>
+            ${log.duration ? `<span class="log-duration-compact">${log.duration}ms</span>` : ''}
           </div>
         </div>
-        ${details ? `<div class="log-details">${details}</div>` : ''}
       </div>
     `;
+  }
+
+  truncateText(text, maxLength) {
+    if (!text) return '';
+    const str = String(text);
+    return str.length > maxLength ? str.substring(0, maxLength) + '...' : str;
   }
 
   handleNewLogEntry(log) {
@@ -394,6 +435,22 @@ class BROPPopupEnhanced {
     }
   }
 
+
+  openLogDetails(logId) {
+    // Find the log entry
+    const log = this.logs.find(l => l.id === logId);
+    if (!log) {
+      console.error('Log entry not found:', logId);
+      return;
+    }
+
+    // Create full-screen log details page URL with log data
+    const logData = encodeURIComponent(JSON.stringify(log));
+    const detailsUrl = chrome.runtime.getURL(`logs.html?log=${logData}`);
+    
+    // Open in new tab
+    chrome.tabs.create({ url: detailsUrl });
+  }
 
   async exportLogs() {
     try {
@@ -525,12 +582,19 @@ class BROPPopupEnhanced {
   }
 }
 
+// Global function for log detail opening (needed for onclick handlers)
+window.openLogDetails = function(logId) {
+  if (window.bropPopup) {
+    window.bropPopup.openLogDetails(logId);
+  }
+};
+
 // Initialize popup when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-  const popup = new BROPPopupEnhanced();
+  window.bropPopup = new BROPPopupEnhanced();
   
   // Clean up interval when popup closes
   window.addEventListener('beforeunload', () => {
-    popup.stopRefreshInterval();
+    window.bropPopup.stopRefreshInterval();
   });
 });

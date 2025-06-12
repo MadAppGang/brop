@@ -217,3 +217,5 @@ secrets.txt
 dist/
 build/
 out/
+
+stagehand

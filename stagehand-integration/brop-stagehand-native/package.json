@@ -1,0 +1,35 @@
+{
+  "name": "@brop/stagehand-native",
+  "version": "1.0.0",
+  "description": "Native BROP implementation of Stagehand interface - No Playwright dependency",
+  "main": "brop-stagehand-native.js",
+  "scripts": {
+    "test": "node tests/test-brop-stagehand-native.js",
+    "example:wikipedia": "node examples/example-wikipedia-navigation.js",
+    "example:forms": "node examples/example-form-interaction.js",
+    "example:basic": "node examples/basic-demo.js"
+  },
+  "keywords": [
+    "stagehand",
+    "brop", 
+    "browser",
+    "automation",
+    "ai",
+    "playwright-alternative",
+    "native-implementation"
+  ],
+  "author": "BROP Team",
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.3",
+    "ws": "^8.18.0",
+    "dotenv": "^16.5.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-org/mcp-brop"
+  }
+}
