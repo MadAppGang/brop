@@ -1309,10 +1309,20 @@ class BROPBridgeClient {
   async cdpPageNavigate(params, targetId) {
     const { url } = params;
     
-    // Extract tab ID from target ID
-    const tabId = this.getTabIdFromTarget(targetId);
+    // Extract tab ID from target ID, or use active tab if no target specified
+    let tabId = this.getTabIdFromTarget(targetId);
     if (!tabId) {
-      throw new Error(`Invalid target ID: ${targetId}`);
+      try {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (activeTab) {
+          tabId = activeTab.id;
+          console.log(`No target ID provided for navigation, using active tab: ${tabId}`);
+        } else {
+          throw new Error(`Invalid target ID: ${targetId} and no active tab found`);
+        }
+      } catch (error) {
+        throw new Error(`Invalid target ID: ${targetId} and failed to get active tab: ${error.message}`);
+      }
     }
 
     await chrome.tabs.update(tabId, { url });
@@ -1344,13 +1354,32 @@ class BROPBridgeClient {
   async cdpRuntimeEvaluate(params, targetId) {
     const { expression, returnByValue = true } = params;
     
-    // Extract tab ID from target ID
-    const tabId = this.getTabIdFromTarget(targetId);
+    // Extract tab ID from target ID, or use active tab if no target specified
+    let tabId = this.getTabIdFromTarget(targetId);
     if (!tabId) {
-      throw new Error(`Invalid target ID: ${targetId}`);
+      try {
+        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (activeTab) {
+          tabId = activeTab.id;
+          console.log(`No target ID provided, using active tab: ${tabId}`);
+        } else {
+          throw new Error(`Invalid target ID: ${targetId} and no active tab found`);
+        }
+      } catch (error) {
+        throw new Error(`Invalid target ID: ${targetId} and failed to get active tab: ${error.message}`);
+      }
     }
 
     try {
+      // Check if we can access this tab
+      const tab = await chrome.tabs.get(tabId);
+      if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
+        throw new Error('Cannot access a chrome:// URL');
+      }
+
+      // Ensure expression is a string and serializable
+      const expressionString = typeof expression === 'string' ? expression : String(expression);
+      
       // Use Chrome's executeScript API which respects CSP
       const results = await chrome.scripting.executeScript({
         target: { tabId: tabId },
@@ -1363,7 +1392,7 @@ class BROPBridgeClient {
             return { success: false, error: error.message };
           }
         },
-        args: [expression]
+        args: [expressionString]
       });
 
       const result = results[0]?.result;
@@ -1444,6 +1473,11 @@ class BROPBridgeClient {
       throw new Error('No active tab found');
     }
 
+    // Check if tab URL is accessible
+    if (activeTab.url.startsWith('chrome://') || activeTab.url.startsWith('chrome-extension://')) {
+      throw new Error('Cannot access a chrome:// URL');
+    }
+
     const results = await chrome.scripting.executeScript({
       target: { tabId: activeTab.id },
       func: () => {
@@ -1465,19 +1499,27 @@ class BROPBridgeClient {
       throw new Error('No active tab found');
     }
 
+    // Check if tab URL is accessible
+    if (activeTab.url.startsWith('chrome://') || activeTab.url.startsWith('chrome-extension://')) {
+      throw new Error('Cannot access a chrome:// URL');
+    }
+
+    // Ensure code is a string and serializable
+    const codeString = typeof code === 'string' ? code : String(code);
+
     const results = await chrome.scripting.executeScript({
       target: { tabId: activeTab.id },
-      func: (code) => {
+      func: (codeToExecute) => {
         try {
-          const result = eval(code);
+          const result = eval(codeToExecute);
           console.log('BROP Execute:', result);
           return result;
         } catch (error) {
           console.error('BROP Execute Error:', error);
-          throw error;
+          return { error: error.message };
         }
       },
-      args: [code]
+      args: [codeString]
     });
 
     return { result: results[0]?.result };

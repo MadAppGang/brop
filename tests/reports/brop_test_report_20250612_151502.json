@@ -1,0 +1,35 @@
+{
+  "test_suite": "BROP Protocol Comprehensive Tests",
+  "timestamp": "2025-06-12T05:15:02Z",
+  "test_results": {
+    "Protocol Buffer Tests": {
+      "status": "PASS",
+      "duration": 1,
+      "output_file": "/Users/jack/mag/mcp-brop/tests/reports/Protocol_Buffer_Tests_output_20250612_151502.log",
+      "report_file": null,
+      "test_data": null
+    },
+    "Comprehensive Protocol Tests": {
+      "status": "PASS",
+      "duration": 10,
+      "output_file": "/Users/jack/mag/mcp-brop/tests/reports/Comprehensive_Protocol_Tests_output_20250612_151502.log",
+      "report_file": null,
+      "test_data": null
+    }
+  },
+  "summary": {
+    "total_suites": 0,
+    "passed_suites": 0,
+    "failed_suites": 0,
+    "total_tests": 0,
+    "total_passed": 0,
+    "total_failed": 0,
+    "overall_success_rate": 0
+  },
+  "environment": {
+    "node_version": "v22.15.0",
+    "python_version": "Python 3.13.4",
+    "os": "Darwin",
+    "platform": "arm64"
+  }
+}
