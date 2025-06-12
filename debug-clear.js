@@ -31,8 +31,10 @@ async function clearExtensionData() {
         console.log('\\n📋 Clearing extension data...');
         
         const clearResult = await sendCommand(ws, {
-            type: 'clear_extension_errors',
-            clearLogs: true  // Also clear call logs
+            method: 'clear_extension_errors',
+            params: {
+                clearLogs: true  // Also clear call logs
+            }
         });
         
         if (clearResult.success) {
@@ -59,7 +61,7 @@ function sendCommand(ws, command) {
         const id = `clear_${messageId}`;
         const message = {
             id: id,
-            command: command
+            ...command
         };
         
         const timeout = setTimeout(() => {

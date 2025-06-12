@@ -31,9 +31,11 @@ async function reloadExtension() {
         console.log('\\n📋 Scheduling extension reload...');
         
         const reloadResult = await sendCommand(ws, {
-            type: 'reload_extension',
-            reason: 'Debug reload requested',
-            delay: 1000
+            method: 'reload_extension',
+            params: {
+                reason: 'Debug reload requested',
+                delay: 1000
+            }
         });
         
         if (reloadResult.success) {
@@ -65,7 +67,7 @@ function sendCommand(ws, command) {
         const id = `reload_${messageId}`;
         const message = {
             id: id,
-            command: command
+            ...command
         };
         
         const timeout = setTimeout(() => {

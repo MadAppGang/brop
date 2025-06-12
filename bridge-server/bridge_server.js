@@ -3,9 +3,8 @@
  * BROP Bridge Server (Node.js)
  * 
  * A middleware server that bridges between:
- * 1. CDP clients (Playwright) on port 9222
- * 2. BROP clients on port 9223  
- * 3. Chrome extension WebSocket client on port 9224
+ * 1. BROP clients on port 9223  
+ * 2. Chrome extension WebSocket client on port 9224
  * 
  * The Chrome extension connects as a WebSocket client to this bridge,
  * allowing external tools to control the browser through the extension.
@@ -19,39 +18,15 @@ class BROPBridgeServer {
   constructor() {
     this.startTime = Date.now();
     this.extensionClient = null;
-    this.cdpClients = new Set();
     this.bropClients = new Set();
     
     // Message routing
-    this.pendingCdpRequests = new Map();
     this.pendingBropRequests = new Map();
     this.messageCounter = 0;
     
-    // Session tracking for events
-    this.clientSessions = new Map(); // client -> session info
-    this.targetToClient = new Map(); // targetId -> client (for event routing)
-    this.sessionToClient = new Map(); // sessionId -> client (for session routing)
-    this.sessionToTarget = new Map(); // sessionId -> targetId
-    
-    // Page-specific WebSocket servers (like real Chrome CDP)
-    this.pageServers = new Map(); // targetId -> WebSocket.Server
-    this.pageClients = new Map(); // targetId -> Set of clients
-    
     // Server instances
-    this.cdpServer = null;
     this.bropServer = null;
     this.extensionServer = null;
-    this.httpServer = null;
-    
-    // Browser state for CDP
-    this.browserInfo = {
-      "Browser": "Chrome/BROP-Extension",
-      "Protocol-Version": "1.3",
-      "User-Agent": "Mozilla/5.0 Chrome BROP Extension",
-      "V8-Version": "12.0.0",
-      "WebKit-Version": "537.36",
-      "webSocketDebuggerUrl": "ws://localhost:9222/"
-    };
     
     this.running = false;
     
@@ -98,21 +73,6 @@ class BROPBridgeServer {
     this.running = true;
     
     try {
-      // Create HTTP server for CDP discovery endpoints
-      this.httpServer = http.createServer((req, res) => {
-        this.handleHttpRequest(req, res);
-      });
-      
-      // Start CDP server (for Playwright)
-      this.cdpServer = new WebSocket.Server({ 
-        port: 9222,
-        perMessageDeflate: false 
-      });
-      this.cdpServer.on('connection', (ws, req) => {
-        this.handleCdpClient(ws, req);
-      });
-      this.log('🎭 CDP Server started on ws://localhost:9222');
-      
       // Start BROP server (for BROP clients)
       this.bropServer = new WebSocket.Server({ 
         port: 9223,
@@ -133,11 +93,6 @@ class BROPBridgeServer {
       });
       this.log('🔌 Extension Server started on ws://localhost:9224');
       this.log('📡 Waiting for Chrome extension to connect...');
-      
-      // Start HTTP server for CDP discovery
-      this.httpServer.listen(9225, () => {
-        this.log('🌐 HTTP Server started on http://localhost:9225 (CDP discovery)');
-      });
       
     } catch (error) {
       console.error('Failed to start servers:', error);
@@ -310,9 +265,8 @@ class BROPBridgeServer {
             server_status: 'running',
             connected_clients: {
               brop_clients: this.bropClients.size,
-              cdp_clients: this.cdpClients.size,
               extension_connected: this.extensionClient && this.extensionClient.readyState === WebSocket.OPEN,
-              total_active_sessions: this.bropClients.size + this.cdpClients.size
+              total_active_sessions: this.bropClients.size
             },
             uptime: Date.now() - this.startTime,
             timestamp: Date.now()
@@ -329,45 +283,16 @@ class BROPBridgeServer {
         // Extension responding to a request
         const requestId = data.id;
         
-        // Check if this is a CDP response
-        if (this.pendingCdpRequests.has(requestId)) {
-          const client = this.pendingCdpRequests.get(requestId);
-          this.pendingCdpRequests.delete(requestId);
-          const cdpResponse = this.convertToCdpResponse(data);
-          this.log(`📤 CDP response for ${requestId}:`, data.success ? 'SUCCESS' : `ERROR: ${data.error}`);
-          
-          // Track target creation for event routing
-          if (data.success && data.result && data.result.targetId) {
-            const sessionInfo = this.clientSessions.get(client);
-            this.targetToClient.set(data.result.targetId, client);
-            
-            // Update session info with target ID
-            if (sessionInfo) {
-              sessionInfo.targetId = data.result.targetId;
-            }
-            
-            console.log(`🎯 Mapped target ${data.result.targetId} to session ${sessionInfo?.sessionId}`);
-            
-            // Create page-specific WebSocket server (like real Chrome CDP)
-            this.createPageServer(data.result.targetId);
-          }
-          
-          // Validate CDP response before sending
-          if (!this.isValidCdpResponse(cdpResponse)) {
-            this.log(`⚠️ Invalid CDP response structure: ${JSON.stringify(cdpResponse)}`);
-            return;
-          }
-          if (client.readyState === WebSocket.OPEN) {
-            console.log('🔧 DEBUG: Sending CDP response:', JSON.stringify(cdpResponse));
-            client.send(JSON.stringify(cdpResponse));
-          }
-        }
         // Check if this is a BROP response
-        else if (this.pendingBropRequests.has(requestId)) {
+        if (this.pendingBropRequests.has(requestId)) {
           const client = this.pendingBropRequests.get(requestId);
           this.pendingBropRequests.delete(requestId);
           if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify(data));
+            // Log BROP command result
+            const statusEmoji = data.success ? '✅' : '❌';
+            const errorInfo = data.success ? '' : ` (${data.error || 'Unknown error'})`;
+            this.log(`🔧 BROP: response ${statusEmoji}${errorInfo}`);
           }
         }
       } else if (messageType === 'event') {
@@ -615,15 +540,15 @@ class BROPBridgeServer {
             server_status: 'running',
             connected_clients: {
               brop_clients: this.bropClients.size,
-              cdp_clients: this.cdpClients.size,
               extension_connected: this.extensionClient && this.extensionClient.readyState === WebSocket.OPEN,
-              total_active_sessions: this.bropClients.size + this.cdpClients.size
+              total_active_sessions: this.bropClients.size
             },
             uptime: Date.now() - this.startTime,
             timestamp: Date.now()
           }
         };
         client.send(JSON.stringify(statusResponse));
+        this.log(`🔧 BROP: ${commandType} ✅`);
         return;
       }
       
@@ -635,6 +560,7 @@ class BROPBridgeServer {
           error: 'Chrome extension not connected'
         };
         client.send(JSON.stringify(errorResponse));
+        this.log(`🔧 BROP: ${commandType} ❌ Extension not connected`);
         return;
       }
       
@@ -653,221 +579,20 @@ class BROPBridgeServer {
     }
   }
 
-  convertToCdpResponse(extensionResponse) {
-    const messageId = extensionResponse.id;
-    
-    // Validate message ID
-    if (messageId === undefined || messageId === null) {
-      this.log(`⚠️ Invalid message ID in extension response:`, JSON.stringify(extensionResponse));
-      return {
-        id: 0,
-        error: {
-          code: -32000,
-          message: 'Invalid message ID'
-        }
-      };
-    }
-    
-    if (extensionResponse.success) {
-      // Success response
-      const result = extensionResponse.result || {};
-      this.log(`✅ CDP success response for ${messageId}:`, JSON.stringify(result).substring(0, 200));
-      
-      // Ensure result is a valid object
-      const cdpResponse = {
-        id: Number(messageId),
-        result: result
-      };
-      
-      // Validate the response structure
-      if (typeof cdpResponse.id !== 'number') {
-        this.log(`⚠️ Invalid ID type in CDP response: ${typeof cdpResponse.id}`);
-        cdpResponse.id = Number(cdpResponse.id) || 0;
-      }
-      
-      return cdpResponse;
-    } else {
-      // Error response
-      const errorMsg = extensionResponse.error || 'Unknown error';
-      this.log(`❌ CDP command failed:`, errorMsg);
-      return {
-        id: Number(messageId),
-        error: {
-          code: -32000,
-          message: String(errorMsg)
-        }
-      };
-    }
-  }
 
-  isValidCdpResponse(response) {
-    if (!response || typeof response !== 'object') {
-      this.log(`⚠️ CDP response is not an object: ${typeof response}`);
-      return false;
-    }
-    
-    if (!('id' in response)) {
-      this.log(`⚠️ CDP response missing 'id' field`);
-      return false;
-    }
-    
-    if (typeof response.id !== 'number') {
-      this.log(`⚠️ CDP response 'id' is not a number: ${typeof response.id}`);
-      return false;
-    }
-    
-    if (!('result' in response) && !('error' in response)) {
-      this.log(`⚠️ CDP response missing both 'result' and 'error' fields`);
-      return false;
-    }
-    
-    if ('error' in response) {
-      if (!response.error || typeof response.error !== 'object') {
-        this.log(`⚠️ CDP response 'error' field is invalid`);
-        return false;
-      }
-      if (typeof response.error.code !== 'number' || typeof response.error.message !== 'string') {
-        this.log(`⚠️ CDP response error structure invalid`);
-        return false;
-      }
-    }
-    
-    return true;
-  }
 
   broadcastExtensionEvent(eventData) {
     const eventType = eventData.event_type;
     
     this.log(`🔧 DEBUG: Processing event: ${eventType}`);
     
-    if (['console', 'page_load', 'navigation'].includes(eventType)) {
-      // Broadcast to CDP clients
-      const cdpEvent = {
-        method: `Runtime.${eventType}`,
-        params: eventData.params || {}
-      };
-      this.log(`📡 Broadcasting Runtime event: ${cdpEvent.method}`);
-      this.broadcastToCdpClients(cdpEvent);
-    } else if (eventType === 'target_created') {
-      // Send target events to specific client that created the target
-      const targetId = eventData.params?.targetInfo?.targetId;
-      const cdpEvent = {
-        method: eventData.method || 'Target.targetCreated',
-        params: eventData.params || {}
-      };
-      
-      if (targetId && this.targetToClient.has(targetId)) {
-        const targetClient = this.targetToClient.get(targetId);
-        this.log(`🎯 Sending target created event to specific client: ${targetId}`);
-        this.sendEventToClient(targetClient, cdpEvent);
-      } else {
-        this.log(`🎯 Broadcasting target created event (no specific client): ${targetId}`);
-        this.broadcastToCdpClients(cdpEvent);
-      }
-    } else if (eventType === 'target_attached') {
-      // With separate endpoints, Target.attachedToTarget should be sent to page endpoints
-      const targetId = eventData.params?.targetInfo?.targetId;
-      const sessionId = eventData.params?.sessionId;
-      const cdpEvent = {
-        method: eventData.method || 'Target.attachedToTarget',
-        params: eventData.params || {}
-      };
-      
-      this.log(`🔗 Sending target attached event to page endpoint: target=${targetId}, session=${sessionId}`);
-      this.sendEventToPageClients(targetId, cdpEvent);
-    } else if (eventType === 'execution_context_created') {
-      // Send execution context events to page endpoints instead of broadcasting
-      const cdpEvent = {
-        method: 'Runtime.executionContextCreated',
-        params: eventData.params || {}
-      };
-      this.log(`⚡ Broadcasting execution context created to all page endpoints`);
-      this.broadcastToAllPageClients(cdpEvent);
-    }
-    
-    // Always broadcast to BROP clients
+    // Only broadcast to BROP clients (CDP support removed)
     this.broadcastToBropClients(eventData);
   }
 
-  sendEventToClient(client, message) {
-    // Send event to specific client
-    if (message.id !== undefined) {
-      this.log(`⚠️ WARNING: Attempting to send event with id field - this will cause assertion error!`);
-      this.log(`   Message: ${JSON.stringify(message)}`);
-      return; // Don't send messages with id fields as events
-    }
-    
-    if (client.readyState === WebSocket.OPEN) {
-      const messageStr = JSON.stringify(message);
-      this.log(`📡 Sending event to specific client: ${message.method}`);
-      client.send(messageStr);
-    } else {
-      this.log(`⚠️ Cannot send event - client connection closed`);
-    }
-  }
 
-  broadcastToCdpClients(message) {
-    const messageStr = JSON.stringify(message);
-    
-    // CRITICAL FIX: Only send events that should NOT have id fields
-    // Events should never have id fields - that's what caused the assertion error
-    if (message.id !== undefined) {
-      this.log(`⚠️ WARNING: Attempting to broadcast message with id field - this will cause assertion error!`);
-      this.log(`   Message: ${JSON.stringify(message)}`);
-      return; // Don't send messages with id fields as events
-    }
-    
-    this.log(`📡 Broadcasting event to ${this.cdpClients.size} CDP clients: ${message.method}`);
-    this.cdpClients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(messageStr);
-      }
-    });
-  }
 
-  sendEventToPageClients(targetId, message) {
-    // Send event to clients connected to specific page endpoint
-    if (message.id !== undefined) {
-      this.log(`⚠️ WARNING: Attempting to send event with id field to page clients`);
-      return;
-    }
-    
-    const pageClients = this.pageClients.get(targetId);
-    if (pageClients) {
-      const messageStr = JSON.stringify(message);
-      this.log(`📡 Sending event to ${pageClients.size} page clients for ${targetId}: ${message.method}`);
-      
-      pageClients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(messageStr);
-        }
-      });
-    } else {
-      this.log(`⚠️ No page clients found for ${targetId}`);
-    }
-  }
   
-  broadcastToAllPageClients(message) {
-    // Send event to all page endpoint clients
-    if (message.id !== undefined) {
-      this.log(`⚠️ WARNING: Attempting to broadcast event with id field to page clients`);
-      return;
-    }
-    
-    const messageStr = JSON.stringify(message);
-    let totalClients = 0;
-    
-    for (const [targetId, pageClients] of this.pageClients.entries()) {
-      pageClients.forEach(client => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(messageStr);
-          totalClients++;
-        }
-      });
-    }
-    
-    this.log(`📡 Broadcasted event to ${totalClients} page clients: ${message.method}`);
-  }
 
   broadcastToBropClients(message) {
     const messageStr = JSON.stringify(message);
@@ -878,142 +603,14 @@ class BROPBridgeServer {
     });
   }
 
-  createPageServer(targetId) {
-    // Create a page-specific WebSocket server (mimicking real Chrome CDP)
-    const port = this.getNextAvailablePort();
-    const pageServer = new WebSocket.Server({ port: port });
-    
-    this.pageServers.set(targetId, pageServer);
-    this.pageClients.set(targetId, new Set());
-    
-    this.log(`🔌 Created page server for ${targetId} on port ${port}`);
-    this.log(`📡 Page endpoint: ws://localhost:${port}/`);
-    
-    pageServer.on('connection', (ws, req) => {
-      this.handlePageClient(ws, req, targetId);
-    });
-    
-    pageServer.on('error', (error) => {
-      console.error(`Page server error for ${targetId}:`, error);
-    });
-    
-    return port;
-  }
   
-  getNextAvailablePort() {
-    // Start from port 9300 and find next available
-    // In production, this should be more sophisticated
-    return 9300 + this.pageServers.size;
-  }
   
-  handlePageClient(ws, req, targetId) {
-    this.log(`🔌 Page client connected to ${targetId}`);
-    
-    const pageClients = this.pageClients.get(targetId);
-    if (pageClients) {
-      pageClients.add(ws);
-    }
-    
-    ws.on('message', (message) => {
-      this.processPageMessage(ws, message.toString(), targetId);
-    });
-    
-    ws.on('close', () => {
-      this.log(`🔌 Page client disconnected from ${targetId}`);
-      if (pageClients) {
-        pageClients.delete(ws);
-      }
-    });
-    
-    ws.on('error', (error) => {
-      console.error(`Page client error for ${targetId}:`, error);
-    });
-  }
   
-  processPageMessage(client, message, targetId) {
-    try {
-      const data = JSON.parse(message);
-      const method = data.method;
-      const params = data.params || {};
-      const messageId = data.id;
-      
-      this.log(`🔌 Page ${targetId}: ${method} (id: ${messageId})`);
-      
-      // Forward page-specific commands to extension with target context
-      if (!this.extensionClient || this.extensionClient.readyState !== WebSocket.OPEN) {
-        const errorResponse = {
-          id: messageId,
-          error: {
-            code: -32000,
-            message: 'Chrome extension not connected'
-          }
-        };
-        client.send(JSON.stringify(errorResponse));
-        return;
-      }
-      
-      // Add target context to the message
-      const extensionMessage = {
-        type: 'cdp_command',
-        id: messageId,
-        method: method,
-        params: params,
-        targetId: targetId // Include target context
-      };
-      
-      // Store the client for response routing (page-specific)
-      this.pendingCdpRequests.set(messageId, client);
-      
-      // Forward to extension
-      this.extensionClient.send(JSON.stringify(extensionMessage));
-      
-    } catch (error) {
-      console.error(`Error processing page message for ${targetId}:`, error);
-    }
-  }
 
-  getBrowserTabs() {
-    // Return tabs with page-specific WebSocket endpoints
-    const tabs = [];
-    let tabIndex = 1;
-    
-    for (const [targetId, pageServer] of this.pageServers.entries()) {
-      const port = pageServer.address()?.port || 9222;
-      tabs.push({
-        description: "",
-        devtoolsFrontendUrl: `/devtools/inspector.html?ws=localhost:${port}/`,
-        id: tabIndex.toString(),
-        title: `BROP Page ${targetId}`,
-        type: "page",
-        url: "about:blank",
-        webSocketDebuggerUrl: `ws://localhost:${port}/`
-      });
-      tabIndex++;
-    }
-    
-    // If no page servers yet, return default
-    if (tabs.length === 0) {
-      tabs.push({
-        description: "",
-        devtoolsFrontendUrl: "/devtools/inspector.html?ws=localhost:9222/page/1",
-        id: "1",
-        title: "BROP Extension Tab",
-        type: "page",
-        url: "about:blank",
-        webSocketDebuggerUrl: "ws://localhost:9222/page/1"
-      });
-    }
-    
-    return tabs;
-  }
 
   async shutdown() {
     this.log('🛑 Shutting down BROP Bridge Server...');
     this.running = false;
-    
-    if (this.cdpServer) {
-      this.cdpServer.close();
-    }
     
     if (this.bropServer) {
       this.bropServer.close();
@@ -1022,18 +619,6 @@ class BROPBridgeServer {
     if (this.extensionServer) {
       this.extensionServer.close();
     }
-    
-    if (this.httpServer) {
-      this.httpServer.close();
-    }
-    
-    // Close all page servers
-    for (const [targetId, pageServer] of this.pageServers.entries()) {
-      this.log(`🛑 Closing page server for ${targetId}`);
-      pageServer.close();
-    }
-    this.pageServers.clear();
-    this.pageClients.clear();
   }
 }
 
@@ -1041,12 +626,10 @@ class BROPBridgeServer {
 async function main() {
   console.log('🌉 BROP Bridge Server (Node.js)');
   console.log('=' + '='.repeat(50));
-  console.log('Starting multi-protocol bridge server...');
+  console.log('Starting BROP bridge server...');
   console.log('');
-  console.log('🎭 CDP Server: ws://localhost:9222 (for Playwright)');
   console.log('🔧 BROP Server: ws://localhost:9223 (for BROP clients)');
   console.log('🔌 Extension Server: ws://localhost:9224 (extension connects here)');
-  console.log('🌐 HTTP Server: http://localhost:9225 (CDP discovery)');
   console.log('');
   
   const bridge = new BROPBridgeServer();

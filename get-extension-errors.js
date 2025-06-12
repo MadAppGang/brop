@@ -31,8 +31,10 @@ async function getExtensionErrors() {
         console.log('\\n📋 Retrieving extension errors...');
         
         const errorResult = await sendCommand(ws, {
-            type: 'get_extension_errors',
-            limit: 50  // Get up to 50 recent errors
+            method: 'get_extension_errors',
+            params: {
+                limit: 50  // Get up to 50 recent errors
+            }
         });
         
         if (errorResult.success) {
@@ -100,7 +102,7 @@ function sendCommand(ws, command) {
         const id = `error_check_${messageId}`;
         const message = {
             id: id,
-            command: command
+            ...command
         };
         
         const timeout = setTimeout(() => {

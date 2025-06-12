@@ -766,6 +766,22 @@ class BROPPopup {
                     color: var(--muted-foreground);
                     white-space: pre-wrap;
                     word-break: break-all;
+                    max-height: 400px;
+                    overflow-y: auto;
+                    line-height: 1.4;
+                }
+
+                .log-details-content::-webkit-scrollbar {
+                    width: 4px;
+                }
+
+                .log-details-content::-webkit-scrollbar-track {
+                    background: var(--muted);
+                }
+
+                .log-details-content::-webkit-scrollbar-thumb {
+                    background-color: var(--muted-foreground);
+                    border-radius: 2px;
                 }
 
                 .footer-actions {
@@ -952,9 +968,9 @@ class BROPPopup {
         const paramsText = typeof log.params === 'string' ? 
           JSON.stringify(JSON.parse(log.params), null, 2) : 
           JSON.stringify(log.params, null, 2);
-        details.push(`\nParameters:\n${paramsText}`);
+        details.push(`\nParameters:\n${this.truncateValue(paramsText)}`);
       } catch (e) {
-        details.push(`\nParameters: ${String(log.params)}`);
+        details.push(`\nParameters: ${this.truncateValue(String(log.params))}`);
       }
     }
     
@@ -963,17 +979,34 @@ class BROPPopup {
         const resultText = typeof log.result === 'string' ? 
           JSON.stringify(JSON.parse(log.result), null, 2) : 
           JSON.stringify(log.result, null, 2);
-        details.push(`\nResult:\n${resultText}`);
+        details.push(`\nResult:\n${this.truncateValue(resultText)}`);
       } catch (e) {
-        details.push(`\nResult: ${String(log.result)}`);
+        details.push(`\nResult: ${this.truncateValue(String(log.result))}`);
       }
     }
     
     if (log.error) {
-      details.push(`\nError Details:\n${String(log.error)}`);
+      details.push(`\nError Details:\n${this.truncateValue(String(log.error))}`);
     }
     
     return this.escapeHtml(details.join('\n'));
+  }
+
+  truncateValue(value, maxLength = 2000) {
+    if (!value || typeof value !== 'string') {
+      return value;
+    }
+    
+    if (value.length <= maxLength) {
+      return value;
+    }
+    
+    // For very long values (like screenshots, page content), show start and end
+    const truncated = value.substring(0, maxLength);
+    const remaining = value.length - maxLength;
+    const lines = value.split('\n').length;
+    
+    return `${truncated}\n\n... [TRUNCATED: ${remaining} more characters, ${lines} total lines] ...\n\nLast 200 chars:\n${value.substring(value.length - 200)}`;
   }
 
   setupFullScreenLogsInteractivity(window, logs) {
