@@ -48,6 +48,7 @@ class BROPBridgeClient {
     this.messageHandlers.set('close_tab', this.handleCloseTab.bind(this));
     this.messageHandlers.set('list_tabs', this.handleListTabs.bind(this));
     this.messageHandlers.set('activate_tab', this.handleActivateTab.bind(this));
+    this.messageHandlers.set('get_server_status', this.handleGetServerStatus.bind(this));
   }
 
   setupErrorHandlers() {
@@ -300,6 +301,21 @@ class BROPBridgeClient {
       if (messageType === 'welcome') {
         console.log('Bridge server welcome:', message.message);
         return;
+      }
+
+      if (messageType === 'response') {
+        // Handle server status responses
+        if (this.pendingServerStatusRequests && this.pendingServerStatusRequests.has(message.id)) {
+          const { resolve, reject } = this.pendingServerStatusRequests.get(message.id);
+          this.pendingServerStatusRequests.delete(message.id);
+          
+          if (message.success) {
+            resolve(message.result);
+          } else {
+            reject(new Error(message.error || 'Server status request failed'));
+          }
+          return;
+        }
       }
 
       if (messageType === 'brop_command') {
@@ -1050,6 +1066,24 @@ class BROPBridgeClient {
     }
   }
 
+  async handleGetServerStatus(params) {
+    try {
+      console.log('📊 Getting server status...');
+      
+      // This command will be handled directly by the bridge server
+      // and won't come back to the extension, but we need this handler
+      // in case someone calls it directly through the extension
+      return {
+        success: true,
+        message: 'Server status request forwarded to bridge',
+        note: 'This command is handled by the bridge server directly'
+      };
+    } catch (error) {
+      console.error('Failed to get server status:', error);
+      throw new Error(`Server status request failed: ${error.message}`);
+    }
+  }
+
   async handleGetExtensionErrors(params) {
     const limit = params?.limit || 50;
     const errors = this.extensionErrors.slice(0, limit);
@@ -1267,6 +1301,55 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       totalLogs: bropBridgeClient.callLogs.length,
       activeSessions: bropBridgeClient.isConnected ? 1 : 0
     });
+  } else if (messageType === 'GET_SERVER_STATUS') {
+    // Send server status request through existing bridge connection
+    if (!bropBridgeClient.isConnected) {
+      sendResponse({
+        success: false,
+        error: 'Bridge not connected'
+      });
+      return;
+    }
+    
+    // Generate unique request ID
+    const requestId = Date.now();
+    
+    // Create a promise that will be resolved when we get the response
+    const serverStatusPromise = new Promise((resolve, reject) => {
+      // Store the response handler
+      bropBridgeClient.pendingServerStatusRequests = bropBridgeClient.pendingServerStatusRequests || new Map();
+      bropBridgeClient.pendingServerStatusRequests.set(requestId, { resolve, reject });
+      
+      // Set timeout
+      setTimeout(() => {
+        if (bropBridgeClient.pendingServerStatusRequests.has(requestId)) {
+          bropBridgeClient.pendingServerStatusRequests.delete(requestId);
+          reject(new Error('Server status request timeout'));
+        }
+      }, 5000);
+    });
+    
+    // Send the request
+    bropBridgeClient.sendToBridge({
+      id: requestId,
+      method: 'get_server_status',
+      params: {}
+    });
+    
+    // Wait for response and send back to popup
+    serverStatusPromise.then(result => {
+      sendResponse({
+        success: true,
+        result: result
+      });
+    }).catch(error => {
+      sendResponse({
+        success: false,
+        error: error.message
+      });
+    });
+    
+    return true; // Keep message channel open for async response
   } else if (messageType === 'SET_ENABLED') {
     bropBridgeClient.enabled = message.enabled;
     bropBridgeClient.saveSettings();

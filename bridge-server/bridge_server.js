@@ -17,6 +17,7 @@ const url = require('url');
 
 class BROPBridgeServer {
   constructor() {
+    this.startTime = Date.now();
     this.extensionClient = null;
     this.cdpClients = new Set();
     this.bropClients = new Set();
@@ -298,6 +299,32 @@ class BROPBridgeServer {
       const data = JSON.parse(message);
       const messageType = data.type;
       
+      // Handle direct server status requests from extension
+      if (data.method === 'get_server_status') {
+        const messageId = data.id || this.getNextMessageId();
+        const statusResponse = {
+          type: 'response',
+          id: messageId,
+          success: true,
+          result: {
+            server_status: 'running',
+            connected_clients: {
+              brop_clients: this.bropClients.size,
+              cdp_clients: this.cdpClients.size,
+              extension_connected: this.extensionClient && this.extensionClient.readyState === WebSocket.OPEN,
+              total_active_sessions: this.bropClients.size + this.cdpClients.size
+            },
+            uptime: Date.now() - this.startTime,
+            timestamp: Date.now()
+          }
+        };
+        
+        if (this.extensionClient && this.extensionClient.readyState === WebSocket.OPEN) {
+          this.extensionClient.send(JSON.stringify(statusResponse));
+        }
+        return;
+      }
+      
       if (messageType === 'response') {
         // Extension responding to a request
         const requestId = data.id;
@@ -578,6 +605,27 @@ class BROPBridgeServer {
       const messageId = data.id || this.getNextMessageId();
       
       this.log(`🔧 BROP: ${commandType}`);
+      
+      // Handle bridge server status requests directly
+      if (commandType === 'get_server_status') {
+        const statusResponse = {
+          id: messageId,
+          success: true,
+          result: {
+            server_status: 'running',
+            connected_clients: {
+              brop_clients: this.bropClients.size,
+              cdp_clients: this.cdpClients.size,
+              extension_connected: this.extensionClient && this.extensionClient.readyState === WebSocket.OPEN,
+              total_active_sessions: this.bropClients.size + this.cdpClients.size
+            },
+            uptime: Date.now() - this.startTime,
+            timestamp: Date.now()
+          }
+        };
+        client.send(JSON.stringify(statusResponse));
+        return;
+      }
       
       if (!this.extensionClient || this.extensionClient.readyState !== WebSocket.OPEN) {
         // No extension connected

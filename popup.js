@@ -135,9 +135,22 @@ class BROPPopup {
       const response = await chrome.runtime.sendMessage({ type: 'GET_STATUS' });
       
       if (response) {
-        const statusMessage = response.connected ? 
-          `Connected - ${response.controlledTabs} tabs controlled` : 
-          `Disconnected - Attempting to reconnect (${response.reconnectAttempts} attempts)`;
+        let statusMessage;
+        if (response.connected) {
+          // Get available tabs count for a more useful display
+          try {
+            const tabs = await chrome.tabs.query({});
+            const availableTabs = tabs.filter(tab => !tab.url.startsWith('chrome://')).length;
+            statusMessage = `Connected - ${availableTabs} available tabs`;
+          } catch (error) {
+            // Fallback if we can't access tabs
+            const controlledCount = response.controlledTabs || 0;
+            statusMessage = `Connected - ${controlledCount} controlled tabs`;
+          }
+        } else {
+          const attempts = response.reconnectAttempts || 0;
+          statusMessage = `Disconnected - Attempting to reconnect (${attempts} attempts)`;
+        }
         
         this.setStatus(response.connected, statusMessage);
         
@@ -170,7 +183,16 @@ class BROPPopup {
     
     const activeSessionsElement = document.getElementById('active-sessions');
     if (activeSessionsElement) {
-      activeSessionsElement.textContent = status.activeSessions || 0;
+      // Get server status to show actual connected clients
+      this.getServerStatus().then(serverStatus => {
+        if (serverStatus && serverStatus.connected_clients) {
+          activeSessionsElement.textContent = serverStatus.connected_clients.total_active_sessions || 0;
+        } else {
+          activeSessionsElement.textContent = status.activeSessions || 0;
+        }
+      }).catch(() => {
+        activeSessionsElement.textContent = status.activeSessions || 0;
+      });
     }
     
     // Update debugger status
@@ -181,7 +203,13 @@ class BROPPopup {
     
     const controlledTabsElement = document.getElementById('controlled-tabs');
     if (controlledTabsElement) {
-      controlledTabsElement.textContent = status.controlledTabs || 0;
+      // Show available tabs instead of controlled tabs for better UX
+      chrome.tabs.query({}).then(tabs => {
+        const availableTabs = tabs.filter(tab => !tab.url.startsWith('chrome://')).length;
+        controlledTabsElement.textContent = availableTabs;
+      }).catch(() => {
+        controlledTabsElement.textContent = status.controlledTabs || 0;
+      });
     }
     
     const browserControlStatusElement = document.getElementById('browser-control-status');
@@ -242,6 +270,24 @@ class BROPPopup {
       }
     } catch (error) {
       document.getElementById('active-tab').textContent = 'Error loading tab info';
+    }
+  }
+
+  async getServerStatus() {
+    try {
+      // Use existing background script connection to get server status
+      const response = await chrome.runtime.sendMessage({ 
+        type: 'GET_SERVER_STATUS'
+      });
+      
+      if (response && response.success) {
+        return response.result;
+      } else {
+        throw new Error(response?.error || 'Server status request failed');
+      }
+    } catch (error) {
+      console.error('Error getting server status:', error);
+      throw error;
     }
   }
 
