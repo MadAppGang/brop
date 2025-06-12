@@ -1657,15 +1657,27 @@ class BROPBridgeClient {
     }
 
     try {
-      // Send message to content script
-      const result = await chrome.tabs.sendMessage(activeTab.id, {
-        type: 'BROP_EXECUTE',
-        command: {
-          type: 'get_simplified_dom',
-          params: params
-        },
-        id: `simplified_dom_${Date.now()}`
-      });
+      // First try to send message to content script
+      let result = null;
+      
+      try {
+        result = await chrome.tabs.sendMessage(activeTab.id, {
+          type: 'BROP_EXECUTE',
+          command: {
+            type: 'get_simplified_dom',
+            params: params
+          },
+          id: `simplified_dom_${Date.now()}`
+        });
+      } catch (sendError) {
+        console.log('Content script not available, injecting manually...');
+        // Content script not available, inject manually
+        result = await this.injectAndExecuteSimplifiedDOM(activeTab.id, params);
+      }
+
+      if (!result) {
+        throw new Error('No result from simplified DOM operation');
+      }
 
       if (result.success) {
         return result.result;
@@ -1675,6 +1687,107 @@ class BROPBridgeClient {
     } catch (error) {
       console.error('Simplified DOM request failed:', error);
       throw new Error(`Simplified DOM error: ${error.message}`);
+    }
+  }
+
+  async injectAndExecuteSimplifiedDOM(tabId, params) {
+    try {
+      // Inject a simplified DOM processor directly
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: (options) => {
+          // Inline simplified DOM implementation
+          const config = {
+            maxDepth: options.max_depth || 5,
+            format: options.format || 'tree'
+          };
+
+          const simplifyElement = (element, depth) => {
+            if (!element || depth > config.maxDepth) return null;
+            
+            const tagName = element.tagName?.toLowerCase();
+            if (!tagName || tagName === 'script' || tagName === 'style') return null;
+
+            const node = {
+              tag: tagName,
+              text: element.textContent?.trim().substring(0, 100) || '',
+              id: element.id || '',
+              classes: Array.from(element.classList || []),
+              children: []
+            };
+
+            if (element.children && depth < config.maxDepth) {
+              for (const child of element.children) {
+                const childNode = simplifyElement(child, depth + 1);
+                if (childNode) node.children.push(childNode);
+              }
+            }
+
+            return node;
+          };
+
+          try {
+            const rootElement = document.body || document.documentElement;
+            const simplifiedTree = simplifyElement(rootElement, 0);
+            
+            if (config.format === 'markdown') {
+              const convertToMarkdown = (node, depth = 0) => {
+                if (!node) return '';
+                let result = '';
+                
+                switch (node.tag) {
+                  case 'h1': result = `# ${node.text}\n\n`; break;
+                  case 'h2': result = `## ${node.text}\n\n`; break;
+                  case 'h3': result = `### ${node.text}\n\n`; break;
+                  case 'p': result = `${node.text}\n\n`; break;
+                  case 'a': result = `[${node.text}](#)\n`; break;
+                  default: 
+                    if (node.text) result = `${node.text}\n`;
+                }
+                
+                if (node.children) {
+                  result += node.children.map(child => convertToMarkdown(child, depth + 1)).join('');
+                }
+                
+                return result;
+              };
+              
+              const markdownContent = convertToMarkdown(simplifiedTree);
+              
+              return {
+                success: true,
+                result: {
+                  format: 'markdown',
+                  simplified_markdown: markdownContent,
+                  total_interactive_elements: 0,
+                  page_structure_summary: `Basic page with ${document.title}`
+                }
+              };
+            } else {
+              return {
+                success: true,
+                result: {
+                  format: 'tree',
+                  root: simplifiedTree,
+                  total_interactive_elements: 0,
+                  page_structure_summary: `Basic page with ${document.title}`
+                }
+              };
+            }
+          } catch (error) {
+            return {
+              success: false,
+              error: error.message
+            };
+          }
+        },
+        args: [params]
+      });
+
+      return results[0]?.result || { success: false, error: 'No result from injection' };
+    } catch (error) {
+      console.error('Failed to inject simplified DOM processor:', error);
+      return { success: false, error: `Injection failed: ${error.message}` };
     }
   }
 
