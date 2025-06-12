@@ -12,21 +12,21 @@ class BROPBridgeClient {
     this.enabled = true;
     this.callLogs = [];
     this.maxLogEntries = 1000;
-    
+
     // Error collection system
     this.extensionErrors = [];
     this.maxErrorEntries = 100;
-    
+
     this.bridgeUrl = 'ws://localhost:9224'; // Extension server port
-    
+
     // Track target discovery state
     this.targetsDiscovered = false;
     this.sentTargetIds = new Set();
-    
+
     // Track debugger sessions for showing "debugging this browser" status
     this.debuggerSessions = new Map(); // tabId -> debuggee
     this.debuggerAttached = new Set(); // Set of attached tab IDs
-    
+
     this.messageHandlers = new Map();
     this.setupMessageHandlers();
     this.setupDebuggerHandlers();
@@ -53,7 +53,7 @@ class BROPBridgeClient {
     this.messageHandlers.set('clear_extension_errors', this.handleClearExtensionErrors.bind(this));
     this.messageHandlers.set('reload_extension', this.handleReloadExtension.bind(this));
     this.messageHandlers.set('test_reload_feature', this.handleTestReloadFeature.bind(this));
-    
+
     // CDP command handlers
     this.cdpHandlers = new Map([
       ['Browser.getVersion', this.cdpBrowserGetVersion.bind(this)],
@@ -109,21 +109,21 @@ class BROPBridgeClient {
     chrome.debugger.onEvent.addListener((source, method, params) => {
       this.handleDebuggerEvent(source, method, params);
     });
-    
+
     // Listen for debugger detach events
     chrome.debugger.onDetach.addListener((source, reason) => {
       this.handleDebuggerDetach(source, reason);
     });
-    
+
     // Listen for tab events to manage debugger sessions
     chrome.tabs.onCreated.addListener((tab) => {
       this.handleTabCreated(tab);
     });
-    
-    chrome.tabs.onRemoved.addListener((tabId) => {
-      this.handleTabRemoved(tabId);
+
+    chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+      this.handleTabRemoved(tabId, removeInfo);
     });
-    
+
     chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       this.handleTabUpdated(tabId, changeInfo, tab);
     });
@@ -135,23 +135,23 @@ class BROPBridgeClient {
         console.log(`Debugger already attached to tab ${tabId}`);
         return true;
       }
-      
+
       const debuggee = { tabId: tabId };
-      
+
       // Attach debugger with CDP version
       await chrome.debugger.attach(debuggee, "1.3");
-      
+
       // Enable required CDP domains
       await chrome.debugger.sendCommand(debuggee, "Runtime.enable", {});
       await chrome.debugger.sendCommand(debuggee, "Page.enable", {});
       await chrome.debugger.sendCommand(debuggee, "Network.enable", {});
       await chrome.debugger.sendCommand(debuggee, "Log.enable", {});
-      
+
       this.debuggerSessions.set(tabId, debuggee);
       this.debuggerAttached.add(tabId);
-      
+
       console.log(`✅ Debugger attached to tab ${tabId} - "debugging this browser" status active`);
-      
+
       // Update the tab's title to show debugging status
       chrome.tabs.get(tabId, (tab) => {
         if (tab && !tab.title.includes('🔧')) {
@@ -159,7 +159,7 @@ class BROPBridgeClient {
           console.log(`🔧 Tab ${tabId} is now being debugged: ${tab.title}`);
         }
       });
-      
+
       return true;
     } catch (error) {
       console.error(`Failed to attach debugger to tab ${tabId}:`, error);
@@ -172,7 +172,7 @@ class BROPBridgeClient {
       if (!this.debuggerAttached.has(tabId)) {
         return true;
       }
-      
+
       const debuggee = this.debuggerSessions.get(tabId);
       if (debuggee) {
         await chrome.debugger.detach(debuggee);
@@ -180,7 +180,7 @@ class BROPBridgeClient {
         this.debuggerAttached.delete(tabId);
         console.log(`✅ Debugger detached from tab ${tabId}`);
       }
-      
+
       return true;
     } catch (error) {
       console.error(`Failed to detach debugger from tab ${tabId}:`, error);
@@ -192,22 +192,22 @@ class BROPBridgeClient {
     try {
       const tabs = await chrome.tabs.query({});
       const attachPromises = [];
-      
+
       for (const tab of tabs) {
         // Skip chrome:// and extension pages
         if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
           continue;
         }
-        
+
         attachPromises.push(this.attachDebuggerToTab(tab.id));
       }
-      
+
       const results = await Promise.allSettled(attachPromises);
       const successCount = results.filter(r => r.status === 'fulfilled' && r.value).length;
-      
+
       console.log(`🔧 Attached debugger to ${successCount}/${attachPromises.length} tabs`);
       console.log(`🎯 Chrome should now show "debugging this browser" status`);
-      
+
       return successCount;
     } catch (error) {
       console.error('Failed to attach debugger to tabs:', error);
@@ -217,7 +217,7 @@ class BROPBridgeClient {
 
   setupErrorHandlers() {
     // Enhanced error capture system
-    
+
     // 1. Capture uncaught errors in the extension
     self.addEventListener('error', (event) => {
       this.logError('Uncaught Error', event.error?.message || event.message, event.error?.stack, {
@@ -259,7 +259,7 @@ class BROPBridgeClient {
           tabId: tabId,
           removeInfo: removeInfo
         });
-        
+
         // Clean up stale debugger attachment
         this.debuggerAttached.delete(tabId);
         this.debuggerSessions.delete(tabId);
@@ -312,7 +312,7 @@ class BROPBridgeClient {
     };
 
     this.extensionErrors.unshift(errorEntry);
-    
+
     // Keep only recent errors
     if (this.extensionErrors.length > this.maxErrorEntries) {
       this.extensionErrors = this.extensionErrors.slice(0, this.maxErrorEntries);
@@ -320,21 +320,21 @@ class BROPBridgeClient {
 
     // Also log to console for debugging
     console.error(`[BROP Error] ${type}: ${message}`, stack ? `\nStack: ${stack}` : '');
-    
+
     this.saveSettings();
   }
 
   async detachDebuggerFromAllTabs() {
     try {
       const detachPromises = [];
-      
+
       for (const tabId of this.debuggerAttached) {
         detachPromises.push(this.detachDebuggerFromTab(tabId));
       }
-      
+
       await Promise.allSettled(detachPromises);
       console.log('🔧 Detached debugger from all tabs');
-      
+
       return true;
     } catch (error) {
       console.error('Failed to detach debugger from tabs:', error);
@@ -357,14 +357,55 @@ class BROPBridgeClient {
 
   handleDebuggerDetach(source, reason) {
     const tabId = source.tabId;
+    const targetId = `tab_${tabId}`;
+    const sessionId = this.debuggerSessions.get(tabId);
+
     console.log(`🔧 Debugger detached from tab ${tabId}, reason: ${reason}`);
-    
+
+    // Notify clients about session detachment before cleanup
+    if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN && sessionId) {
+      // Send Target.detachedFromTarget event
+      this.sendToBridge({
+        type: 'event',
+        event_type: 'target_detached',
+        method: 'Target.detachedFromTarget',
+        params: {
+          sessionId: sessionId,
+          targetId: targetId
+        }
+      });
+      console.log(`📡 Sent Target.detachedFromTarget event for session ${sessionId} (reason: ${reason})`);
+
+      // Send custom BROP event for debugger detachment
+      this.sendToBridge({
+        type: 'session_event',
+        event_type: 'debugger_detached',
+        tabId: tabId,
+        targetId: targetId,
+        sessionId: sessionId,
+        reason: reason,
+        timestamp: Date.now()
+      });
+      console.log(`📡 Sent BROP debugger_detached session event for tab ${tabId}`);
+    }
+
     // Clean up our tracking
     this.debuggerSessions.delete(tabId);
     this.debuggerAttached.delete(tabId);
-    
-    // If we're still enabled and connected, try to reattach (unless user initiated detach)
-    if (this.enabled && this.isConnected && reason !== 'canceled_by_user') {
+
+    // Log the debugger detachment
+    this.logCall(
+      'debugger_detached',
+      'SYSTEM',
+      { tabId, targetId, reason },
+      { sessionId },
+      reason === 'target_closed' ? null : `Debugger detached: ${reason}`,
+      null
+    );
+
+    // If we're still enabled and connected, try to reattach (unless user initiated detach or target closed)
+    if (this.enabled && this.isConnected && reason !== 'canceled_by_user' && reason !== 'target_closed') {
+      console.log(`⚡ Attempting to reattach debugger to tab ${tabId} in 1 second...`);
       setTimeout(() => {
         this.attachDebuggerToTab(tabId);
       }, 1000);
@@ -373,26 +414,148 @@ class BROPBridgeClient {
 
   handleTabCreated(tab) {
     // Auto-attach debugger to new tabs if we're active
-    if (this.enabled && this.isConnected && tab.url && 
-        !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
+    if (this.enabled && this.isConnected && tab.url &&
+      !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
       setTimeout(() => {
         this.attachDebuggerToTab(tab.id);
       }, 500); // Small delay to let tab initialize
     }
   }
 
-  handleTabRemoved(tabId) {
+  handleTabRemoved(tabId, removeInfo) {
+    const targetId = `tab_${tabId}`;
+
+    console.log(`🗑️ Tab ${tabId} removed - cleaning up sessions and notifying clients`);
+
+    // Get session info before cleanup for notifications
+    const hadDebuggerSession = this.debuggerAttached.has(tabId);
+    const sessionId = this.debuggerSessions.get(tabId);
+
     // Clean up debugger session for removed tab
     this.debuggerSessions.delete(tabId);
     this.debuggerAttached.delete(tabId);
-    this.sentTargetIds.delete(`tab_${tabId}`);
+    this.sentTargetIds.delete(targetId);
+
+    // Notify all listening clients about target destruction
+    if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
+      // Send Target.targetDestroyed event
+      this.sendToBridge({
+        type: 'event',
+        event_type: 'target_destroyed',
+        method: 'Target.targetDestroyed',
+        params: {
+          targetId: targetId
+        }
+      });
+      console.log(`📡 Sent Target.targetDestroyed event for tab ${tabId}`);
+
+      // If there was an active session, send detached event
+      if (hadDebuggerSession && sessionId) {
+        this.sendToBridge({
+          type: 'event',
+          event_type: 'target_detached',
+          method: 'Target.detachedFromTarget',
+          params: {
+            sessionId: sessionId,
+            targetId: targetId
+          }
+        });
+        console.log(`📡 Sent Target.detachedFromTarget event for session ${sessionId}`);
+      }
+
+      // Send custom BROP event for session cleanup
+      this.sendToBridge({
+        type: 'session_event',
+        event_type: 'tab_closed',
+        tabId: tabId,
+        targetId: targetId,
+        sessionId: sessionId,
+        removeInfo: removeInfo,
+        timestamp: Date.now()
+      });
+      console.log(`📡 Sent BROP tab_closed session event for tab ${tabId}`);
+    }
+
+    // Log the session termination
+    this.logCall(
+      'tab_removed',
+      'SYSTEM',
+      { tabId, targetId, removeInfo },
+      { sessionsCleaned: hadDebuggerSession ? 1 : 0 },
+      null,
+      null
+    );
   }
 
   handleTabUpdated(tabId, changeInfo, tab) {
+    const targetId = `tab_${tabId}`;
+
+    // If tab URL changed, notify clients about navigation
+    if (changeInfo.url && this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
+      console.log(`🧭 Tab ${tabId} navigated to: ${changeInfo.url}`);
+
+      // Send Page.frameNavigated event
+      this.sendToBridge({
+        type: 'event',
+        event_type: 'frame_navigated',
+        method: 'Page.frameNavigated',
+        params: {
+          frame: {
+            id: 'main_frame',
+            url: changeInfo.url,
+            securityOrigin: this.getSecurityOrigin(changeInfo.url),
+            mimeType: 'text/html'
+          }
+        }
+      });
+
+      // Send custom BROP navigation event
+      this.sendToBridge({
+        type: 'session_event',
+        event_type: 'tab_navigated',
+        tabId: tabId,
+        targetId: targetId,
+        oldUrl: tab.url,
+        newUrl: changeInfo.url,
+        timestamp: Date.now()
+      });
+      console.log(`📡 Sent navigation events for tab ${tabId}`);
+    }
+
+    // If status changed to loading, notify about navigation start
+    if (changeInfo.status === 'loading' && this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
+      this.sendToBridge({
+        type: 'event',
+        event_type: 'navigation_start',
+        method: 'Page.navigationStarted',
+        params: {
+          tabId: tabId,
+          targetId: targetId,
+          url: tab.url,
+          timestamp: Date.now()
+        }
+      });
+    }
+
+    // If status changed to complete, notify about navigation completion
+    if (changeInfo.status === 'complete' && this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
+      this.sendToBridge({
+        type: 'event',
+        event_type: 'navigation_complete',
+        method: 'Page.navigationCompleted',
+        params: {
+          tabId: tabId,
+          targetId: targetId,
+          url: tab.url,
+          timestamp: Date.now()
+        }
+      });
+    }
+
     // If tab URL changed and we're not attached, attach debugger
-    if (this.enabled && this.isConnected && changeInfo.url && 
-        !this.debuggerAttached.has(tabId) &&
-        !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
+    if (this.enabled && this.isConnected && changeInfo.url &&
+      !this.debuggerAttached.has(tabId) &&
+      !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
       setTimeout(() => {
         this.attachDebuggerToTab(tabId);
       }, 500);
@@ -434,72 +597,72 @@ class BROPBridgeClient {
 
     this.connectionStatus = 'connecting';
     this.broadcastStatusUpdate();
-    
+
     console.log(`Connecting to BROP bridge server at ${this.bridgeUrl}... (attempt ${this.reconnectAttempts + 1})`);
-    
+
     try {
       this.bridgeSocket = new WebSocket(this.bridgeUrl);
-      
+
       this.bridgeSocket.onopen = () => {
         console.log('✅ Connected to BROP bridge server');
         this.isConnected = true;
         this.connectionStatus = 'connected';
         this.lastConnectionTime = Date.now();
         this.reconnectAttempts = 0;
-        
+
         // Reset target discovery state on new connection
         this.targetsDiscovered = false;
         this.sentTargetIds.clear();
-        
+
         // Clear any pending reconnect timer
         if (this.reconnectTimer) {
           clearTimeout(this.reconnectTimer);
           this.reconnectTimer = null;
         }
-        
+
         // Send connection confirmation
         this.sendToBridge({
           type: 'extension_ready',
           message: 'BROP extension connected and ready',
           timestamp: Date.now()
         });
-        
+
         // Attach debugger to all tabs to show "debugging this browser" status
         if (this.enabled) {
           setTimeout(() => {
             this.attachDebuggerToAllTabs();
           }, 1000);
         }
-        
+
         this.broadcastStatusUpdate();
       };
-      
+
       this.bridgeSocket.onmessage = (event) => {
         this.handleBridgeMessage(event.data);
       };
-      
+
       this.bridgeSocket.onclose = (event) => {
         console.log(`🔌 Disconnected from BROP bridge server (code: ${event.code})`);
         this.isConnected = false;
         this.connectionStatus = 'disconnected';
         this.bridgeSocket = null;
-        
+
         // Detach debuggers when disconnected to remove "debugging this browser" status
         this.detachDebuggerFromAllTabs();
-        
+
         this.broadcastStatusUpdate();
-        
+
         // Attempt to reconnect
         this.scheduleReconnect();
       };
-      
+
       this.bridgeSocket.onerror = (error) => {
         console.error('Bridge connection error:', error);
         this.isConnected = false;
         this.connectionStatus = 'disconnected';
         this.broadcastStatusUpdate();
       };
-      
+
     } catch (error) {
       console.error('Failed to create WebSocket connection:', error);
       this.connectionStatus = 'disconnected';
@@ -513,13 +676,13 @@ class BROPBridgeClient {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
     }
-    
+
     // Always try to reconnect every 5 seconds, don't give up
     const delay = 5000; // Fixed 5 second interval
-    
+
     this.reconnectAttempts++;
     console.log(`Scheduling reconnect to bridge server in ${delay}ms (attempt ${this.reconnectAttempts})`);
-    
+
     this.reconnectTimer = setTimeout(() => {
       this.connectToBridge();
     }, delay);
@@ -527,20 +690,33 @@ class BROPBridgeClient {
 
   generateUUID() {
     // Generate RFC 4122 compliant UUID v4
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
       const r = Math.random() * 16 | 0;
       const v = c == 'x' ? r : (r & 0x3 | 0x8);
       return v.toString(16);
     });
   }
-  
+
   getTabIdFromTarget(targetId) {
     // Extract tab ID from target ID format: "tab_123456"
     if (targetId && targetId.startsWith('tab_')) {
-      const tabId = parseInt(targetId.replace('tab_', ''));
+      const tabId = Number.parseInt(targetId.replace('tab_', ''));
       return isNaN(tabId) ? null : tabId;
     }
     return null;
+  }
+
+  getSecurityOrigin(url) {
+    // Extract security origin from URL
+    try {
+      if (url === 'about:blank' || url.startsWith('data:')) {
+        return 'null';
+      }
+      const urlObj = new URL(url);
+      return urlObj.origin;
+    } catch (error) {
+      return 'null';
+    }
   }
 
   broadcastStatusUpdate() {
@@ -565,22 +741,22 @@ class BROPBridgeClient {
     if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
       this.bridgeSocket.send(JSON.stringify(message));
       return true;
-    } else {
-      console.warn('Bridge connection not available, cannot send message');
-      return false;
     }
+    console.warn('Bridge connection not available, cannot send message');
+    return false;
+
   }
 
   async handleBridgeMessage(data) {
     try {
       const message = JSON.parse(data);
       const messageType = message.type;
-      
+
       if (messageType === 'welcome') {
         console.log('Bridge server welcome:', message.message);
         return;
       }
-      
+
       if (messageType === 'cdp_command') {
         await this.processCDPCommand(message);
       } else if (messageType === 'brop_command') {
@@ -604,9 +780,9 @@ class BROPBridgeClient {
 
   async processCDPCommand(message) {
     const { id, method, params, targetId } = message;
-    
+
     console.log(`Processing CDP command: ${method}${targetId ? ` (target: ${targetId})` : ''}`, params ? `with params: ${JSON.stringify(params).substring(0, 100)}` : '');
-    
+
     // Check if service is enabled
     if (!this.enabled) {
       console.log(`CDP command ignored (service disabled): ${method}`);
@@ -618,17 +794,17 @@ class BROPBridgeClient {
       });
       return;
     }
-    
+
     try {
       const handler = this.cdpHandlers.get(method);
       if (handler) {
         // Pass target context to handler
         const result = await handler(params, targetId);
         console.log(`CDP command ${method} completed successfully${targetId ? ` for target ${targetId}` : ''}`);
-        
+
         // Log successful CDP command
         this.logCall(method, 'CDP', params, result, null, null);
-        
+
         this.sendToBridge({
           type: 'response',
           id: id,
@@ -637,10 +813,10 @@ class BROPBridgeClient {
         });
       } else {
         console.warn(`Unsupported CDP method: ${method}`);
-        
+
         // Log unsupported CDP command
         this.logCall(method, 'CDP', params, null, `Unsupported CDP method: ${method}`, null);
-        
+
         this.sendToBridge({
           type: 'response',
           id: id,
@@ -651,10 +827,10 @@ class BROPBridgeClient {
     } catch (error) {
       console.error(`CDP command error (${method}):`, error);
       this.logError('CDP Command Error', `${method}: ${error.message}`, error.stack);
-      
+
       // Log failed CDP command
       this.logCall(method, 'CDP', params, null, error.message, null);
-      
+
       this.sendToBridge({
         type: 'response',
         id: id,
@@ -667,7 +843,7 @@ class BROPBridgeClient {
   async processBROPCommand(message) {
     const { id, command } = message;
     const commandType = command?.type;
-    
+
     // Check if service is enabled
     if (!this.enabled) {
       console.log(`BROP command ignored (service disabled): ${commandType}`);
@@ -679,15 +855,15 @@ class BROPBridgeClient {
       });
       return;
     }
-    
+
     try {
       const handler = this.messageHandlers.get(commandType);
       if (handler) {
         const result = await handler(command.params || {});
-        
+
         // Log successful BROP command
         this.logCall(commandType, 'BROP', command.params, result, null, null);
-        
+
         this.sendToBridge({
           type: 'response',
           id: id,
@@ -700,10 +876,10 @@ class BROPBridgeClient {
     } catch (error) {
       console.error(`BROP command error (${commandType}):`, error);
       this.logError('BROP Command Error', `${commandType}: ${error.message}`, error.stack);
-      
+
       // Log failed BROP command
       this.logCall(commandType, 'BROP', command.params, null, error.message, null);
-      
+
       this.sendToBridge({
         type: 'response',
         id: id,
@@ -721,7 +897,7 @@ class BROPBridgeClient {
       console.log('Browser.getVersion called - sending existing targets immediately');
       await this.sendExistingTargets();
     }
-    
+
     return {
       protocolVersion: "1.3",
       product: "Chrome/BROP-Extension",
@@ -736,30 +912,30 @@ class BROPBridgeClient {
       console.log('Targets already discovered - skipping');
       return;
     }
-    
+
     console.log('Sending existing targets proactively...');
     this.targetsDiscovered = true;
-    
+
     const tabs = await chrome.tabs.query({});
     console.log(`Found ${tabs.length} existing tabs to send proactively`);
-    
+
     for (const tab of tabs) {
       // Skip chrome:// URLs and other internal pages
       if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
         console.log(`Skipping internal tab: ${tab.url}`);
         continue;
       }
-      
+
       const targetId = `tab_${tab.id}`;
-      
+
       if (this.sentTargetIds.has(targetId)) {
         console.log(`Already sent target: ${targetId}`);
         continue;
       }
-      
+
       console.log(`Proactively sending target: ${tab.id} - ${tab.title}`);
       this.sentTargetIds.add(targetId);
-      
+
       const targetInfo = {
         targetId: targetId,
         type: "page",
@@ -769,7 +945,7 @@ class BROPBridgeClient {
         canAccessOpener: false,
         browserContextId: "default"
       };
-      
+
       // Send target created event
       this.sendTargetCreatedEvent(targetInfo);
     }
@@ -784,12 +960,12 @@ class BROPBridgeClient {
   async cdpBrowserGetWindowForTarget(params) {
     const { targetId } = params;
     console.log('Getting window for target:', targetId, 'params:', JSON.stringify(params));
-    
+
     // If no targetId is provided, get the current active tab's window
     let tabId;
-    
+
     if (targetId && targetId.startsWith('tab_')) {
-      tabId = parseInt(targetId.replace('tab_', ''));
+      tabId = Number.parseInt(targetId.replace('tab_', ''));
     } else {
       // No targetId provided - get current active tab
       console.log('No targetId provided, getting current active tab');
@@ -803,13 +979,13 @@ class BROPBridgeClient {
         console.log('Failed to get active tab:', error);
       }
     }
-    
+
     if (tabId) {
       try {
         // Get tab information
         const tab = await chrome.tabs.get(tabId);
         console.log('Found tab:', tab.id, 'in window:', tab.windowId);
-        
+
         // Get window information
         const window = await chrome.windows.get(tab.windowId);
         console.log('Window info:', JSON.stringify({
@@ -819,7 +995,7 @@ class BROPBridgeClient {
           width: window.width,
           height: window.height
         }));
-        
+
         // Return window bounds information in the exact format Playwright expects
         const response = {
           windowId: window.id,
@@ -830,14 +1006,14 @@ class BROPBridgeClient {
             height: window.height || 800
           }
         };
-        
+
         console.log('Returning Browser.getWindowForTarget response:', JSON.stringify(response));
         return response;
       } catch (error) {
         console.error('Failed to get window for tab:', tabId, error);
       }
     }
-    
+
     // Return default window information when no specific target or if lookup failed
     console.log('Returning default window information');
     const defaultResponse = {
@@ -856,23 +1032,23 @@ class BROPBridgeClient {
   async cdpTargetSetDiscoverTargets(params) {
     const { discover } = params;
     console.log('Target discovery set to:', discover);
-    
+
     if (discover) {
       console.log('Target discovery enabled - sending existing targets');
-      
+
       // When target discovery is enabled, we should send targetCreated events for existing targets
       const tabs = await chrome.tabs.query({});
       console.log(`Found ${tabs.length} existing tabs to report`);
-      
+
       for (const tab of tabs) {
         // Skip chrome:// URLs and other internal pages
         if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
           console.log(`Skipping internal tab: ${tab.url}`);
           continue;
         }
-        
+
         console.log(`Sending targetCreated for existing tab: ${tab.id} - ${tab.title}`);
-        
+
         // Send target created event for each existing tab
         this.sendTargetCreatedEvent({
           targetId: `tab_${tab.id}`,
@@ -885,18 +1061,18 @@ class BROPBridgeClient {
         });
       }
     }
-    
+
     return {};
   }
 
   async cdpTargetGetTargets(params) {
     // Get ALL tabs, not just current window
     const tabs = await chrome.tabs.query({});
-    
+
     console.log(`Getting targets: found ${tabs.length} tabs total`);
-    
+
     const targets = [];
-    
+
     // Add browser context target first
     targets.push({
       targetId: "browser_context_default",
@@ -907,7 +1083,7 @@ class BROPBridgeClient {
       canAccessOpener: false,
       browserContextId: "default"
     });
-    
+
     // Add page targets for each tab
     for (const tab of tabs) {
       // Skip chrome:// URLs and other internal pages
@@ -915,7 +1091,7 @@ class BROPBridgeClient {
         console.log(`Skipping internal tab: ${tab.url}`);
         continue;
       }
-      
+
       console.log(`Adding tab target: ${tab.id} - ${tab.title} - ${tab.url}`);
       targets.push({
         targetId: `tab_${tab.id}`,
@@ -934,13 +1110,13 @@ class BROPBridgeClient {
 
   async cdpTargetAttachToTarget(params) {
     const { targetId, flatten } = params;
-    
+
     console.log(`Attaching to target: ${targetId}, flatten: ${flatten}`);
-    
+
     // Use UUID-like session ID format that matches real Chrome CDP
     const sessionId = this.generateUUID();
     console.log(`Created session: ${sessionId}`);
-    
+
     return {
       sessionId: sessionId
     };
@@ -949,42 +1125,42 @@ class BROPBridgeClient {
   async cdpTargetSetAutoAttach(params) {
     const { autoAttach, waitForDebuggerOnStart, flatten } = params;
     console.log('Target auto-attach set:', params);
-    
+
     // Re-enable auto-attach but with proper session management
     // The assertion errors were caused by session routing, not auto-attach itself
     this.autoAttachEnabled = autoAttach;
     this.waitForDebuggerOnStart = waitForDebuggerOnStart;
     this.flattenAutoAttach = flatten;
-    
+
     // DISABLED: Auto-attach causes assertion errors in Playwright
     console.log('DISABLED auto-attach behavior to prevent Playwright assertion errors');
     // When auto-attach is enabled, proactively send existing targets (but only once)
     if (false && autoAttach && !this.targetsDiscovered) {
       console.log('Auto-attach enabled - proactively sending existing targets (first time)');
       this.targetsDiscovered = true;
-      
+
       // Send target events for existing tabs
       const tabs = await chrome.tabs.query({});
       console.log(`Found ${tabs.length} existing tabs to report via auto-attach`);
-      
+
       for (const tab of tabs) {
         // Skip chrome:// URLs and other internal pages
         if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
           console.log(`Skipping internal tab: ${tab.url}`);
           continue;
         }
-        
+
         const targetId = `tab_${tab.id}`;
-        
+
         // Skip if we've already sent this target
         if (this.sentTargetIds.has(targetId)) {
           console.log(`Already sent target: ${targetId}`);
           continue;
         }
-        
+
         console.log(`Auto-attach: Sending targetCreated for tab: ${tab.id} - ${tab.title}`);
         this.sentTargetIds.add(targetId);
-        
+
         const targetInfo = {
           targetId: targetId,
           type: "page",
@@ -994,10 +1170,10 @@ class BROPBridgeClient {
           canAccessOpener: false,
           browserContextId: "default"
         };
-        
+
         // Send target created event
         this.sendTargetCreatedEvent(targetInfo);
-        
+
         // If auto-attach is enabled, also send attached event
         const sessionId = this.generateUUID();
         const attachInfo = {
@@ -1014,13 +1190,13 @@ class BROPBridgeClient {
     } else if (autoAttach && this.targetsDiscovered) {
       console.log('Auto-attach enabled but targets already discovered - skipping duplicate events');
     }
-    
+
     return {};
   }
 
   async cdpTargetGetTargetInfo(params) {
     const { targetId } = params;
-    
+
     // If targetId provided, get specific target info
     if (targetId) {
       if (targetId === "browser_context_default") {
@@ -1036,7 +1212,7 @@ class BROPBridgeClient {
           }
         };
       } else if (targetId.startsWith('tab_')) {
-        const tabId = parseInt(targetId.replace('tab_', ''));
+        const tabId = Number.parseInt(targetId.replace('tab_', ''));
         try {
           const tab = await chrome.tabs.get(tabId);
           return {
@@ -1055,10 +1231,10 @@ class BROPBridgeClient {
         }
       }
     }
-    
+
     // Fallback to current active tab
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
+
     return {
       targetInfo: {
         targetId: activeTab ? `tab_${activeTab.id}` : "tab_default",
@@ -1074,40 +1250,40 @@ class BROPBridgeClient {
 
   async cdpTargetCreateTarget(params) {
     const { url, width, height, browserContextId, enableBeginFrameControl } = params;
-    
+
     console.log('Creating target with params:', params);
-    
+
     // Create a new tab
     const newTab = await chrome.tabs.create({
       url: url || 'about:blank',
       active: false
     });
-    
+
     console.log('Created new tab:', newTab.id);
-    
+
     const targetId = `tab_${newTab.id}`;
-    
+
     // Wait a moment for tab to be ready
     await new Promise(resolve => setTimeout(resolve, 100));
-    
+
     // Send Target.targetCreated event to bridge
     const targetInfo = {
       targetId: targetId,
       type: "page",
-      title: newTab.title || "New Tab", 
+      title: newTab.title || "New Tab",
       url: newTab.url || url || 'about:blank',
       attached: false,
       canAccessOpener: false,
       browserContextId: browserContextId || "default"
     };
-    
+
     this.sendTargetCreatedEvent(targetInfo);
-    
+
     // Re-enable auto-attach with proper session management
     if (this.autoAttachEnabled) {
       console.log('Auto-attaching to new target:', targetId);
       const sessionId = this.generateUUID();
-      
+
       // Send Target.attachedToTarget event - but with proper session routing
       const attachInfo = {
         sessionId: sessionId,
@@ -1120,7 +1296,7 @@ class BROPBridgeClient {
       console.log('🔧 DEBUG: Sending Target.attachedToTarget (createTarget) with sessionId:', attachInfo.sessionId, 'waitingForDebugger:', attachInfo.waitingForDebugger);
       this.sendTargetAttachedEvent(attachInfo);
     }
-    
+
     return {
       targetId: targetId
     };
@@ -1138,7 +1314,7 @@ class BROPBridgeClient {
         }
       });
       console.log('Sent Target.targetCreated event for:', targetInfo.targetId);
-      
+
       // CRITICAL: Also send Runtime.executionContextCreated event
       // This is what Playwright needs to properly initialize pages
       setTimeout(() => {
@@ -1151,7 +1327,7 @@ class BROPBridgeClient {
     // Send execution context created event - CRITICAL for Playwright page initialization
     if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
       const contextId = Math.floor(Math.random() * 1000000); // Generate unique context ID
-      
+
       this.sendToBridge({
         type: 'event',
         event_type: 'execution_context_created',
@@ -1188,19 +1364,75 @@ class BROPBridgeClient {
 
   async cdpTargetCloseTarget(params) {
     const { targetId } = params;
-    
+
     // Extract tab ID from target ID
     if (targetId.startsWith('tab_')) {
-      const tabId = parseInt(targetId.replace('tab_', ''));
+      const tabId = Number.parseInt(targetId.replace('tab_', ''));
+      const sessionId = this.debuggerSessions.get(tabId);
+
+      console.log(`🗑️ Programmatically closing target ${targetId} (tab ${tabId})`);
+
       try {
+        // Notify clients before closing the tab
+        if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
+          // Send Target.detachedFromTarget event if there was a session
+          if (sessionId) {
+            this.sendToBridge({
+              type: 'event',
+              event_type: 'target_detached',
+              method: 'Target.detachedFromTarget',
+              params: {
+                sessionId: sessionId,
+                targetId: targetId
+              }
+            });
+            console.log(`📡 Sent Target.detachedFromTarget for programmatic close of ${targetId}`);
+          }
+
+          // Send custom BROP event for programmatic closure
+          this.sendToBridge({
+            type: 'session_event',
+            event_type: 'target_closing',
+            tabId: tabId,
+            targetId: targetId,
+            sessionId: sessionId,
+            reason: 'programmatic_close',
+            timestamp: Date.now()
+          });
+          console.log(`📡 Sent BROP target_closing event for ${targetId}`);
+        }
+
+        // Close the tab (this will trigger handleTabRemoved automatically)
         await chrome.tabs.remove(tabId);
+
+        // Log the programmatic closure
+        this.logCall(
+          'target_close',
+          'CDP',
+          { targetId, tabId },
+          { success: true },
+          null,
+          null
+        );
+
         return { success: true };
       } catch (error) {
         console.error('Failed to close tab:', error);
+
+        // Log the failed closure
+        this.logCall(
+          'target_close',
+          'CDP',
+          { targetId, tabId },
+          null,
+          error.message,
+          null
+        );
+
         return { success: false };
       }
     }
-    
+
     return { success: false };
   }
 
@@ -1252,14 +1484,14 @@ class BROPBridgeClient {
     // For a newly created page, we need to use the target's tab info
     // Get the tab that corresponds to this CDP session
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
+
     // If no active tab, try to get any tab for this target
     let targetTab = activeTab;
     if (!targetTab) {
       const allTabs = await chrome.tabs.query({});
       targetTab = allTabs[allTabs.length - 1]; // Use the most recently created tab
     }
-    
+
     const url = targetTab?.url || "about:blank";
     let securityOrigin;
     try {
@@ -1267,7 +1499,7 @@ class BROPBridgeClient {
     } catch {
       securityOrigin = "null";
     }
-    
+
     const frameTree = {
       frame: {
         id: "main_frame",
@@ -1280,7 +1512,7 @@ class BROPBridgeClient {
       },
       childFrames: []
     };
-    
+
     console.log('Returning frame tree for URL:', url);
     return { frameTree };
   }
@@ -1308,7 +1540,7 @@ class BROPBridgeClient {
 
   async cdpPageNavigate(params, targetId) {
     const { url } = params;
-    
+
     // Extract tab ID from target ID, or use active tab if no target specified
     let tabId = this.getTabIdFromTarget(targetId);
     if (!tabId) {
@@ -1326,7 +1558,7 @@ class BROPBridgeClient {
     }
 
     await chrome.tabs.update(tabId, { url });
-    
+
     // Wait for navigation to complete
     return new Promise((resolve) => {
       const listener = (updatedTabId, changeInfo) => {
@@ -1339,7 +1571,7 @@ class BROPBridgeClient {
         }
       };
       chrome.tabs.onUpdated.addListener(listener);
-      
+
       // Add timeout to prevent hanging
       setTimeout(() => {
         chrome.tabs.onUpdated.removeListener(listener);
@@ -1353,7 +1585,7 @@ class BROPBridgeClient {
 
   async cdpRuntimeEvaluate(params, targetId) {
     const { expression, returnByValue = true } = params;
-    
+
     // Extract tab ID from target ID, or use active tab if no target specified
     let tabId = this.getTabIdFromTarget(targetId);
     if (!tabId) {
@@ -1379,7 +1611,7 @@ class BROPBridgeClient {
 
       // Ensure expression is a string and serializable
       const expressionString = typeof expression === 'string' ? expression : String(expression);
-      
+
       // Use Chrome's executeScript API which respects CSP
       const results = await chrome.scripting.executeScript({
         target: { tabId: tabId },
@@ -1410,7 +1642,7 @@ class BROPBridgeClient {
       // If executeScript fails due to CSP, try a simpler approach
       if (error.message.includes('Content Security Policy')) {
         console.log('CSP blocked executeScript, trying alternative approach');
-        
+
         // For CSP-restricted sites, we can still get basic page info
         try {
           const results = await chrome.scripting.executeScript({
@@ -1426,7 +1658,7 @@ class BROPBridgeClient {
               return { success: false, error: 'Document not accessible' };
             }
           });
-          
+
           const result = results[0]?.result;
           if (result?.success) {
             return {
@@ -1440,7 +1672,7 @@ class BROPBridgeClient {
           console.log('Alternative approach also failed:', altError);
         }
       }
-      
+
       throw error;
     }
   }
@@ -1448,7 +1680,7 @@ class BROPBridgeClient {
   async cdpPageCaptureScreenshot(params) {
     const { format = 'png', quality = 90, fromSurface = true } = params;
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
+
     if (!activeTab) {
       throw new Error('No active tab found');
     }
@@ -1460,7 +1692,7 @@ class BROPBridgeClient {
 
     // Remove data URL prefix to get just the base64 data
     const base64Data = dataUrl.split(',')[1];
-    
+
     return {
       data: base64Data
     };
@@ -1494,7 +1726,7 @@ class BROPBridgeClient {
   async handleExecuteConsole(params) {
     const { code } = params;
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
+
     if (!activeTab) {
       throw new Error('No active tab found');
     }
@@ -1528,7 +1760,7 @@ class BROPBridgeClient {
   async handleGetScreenshot(params) {
     const { full_page = false, format = 'png' } = params;
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
+
     if (!activeTab) {
       throw new Error('No active tab found');
     }
@@ -1537,7 +1769,7 @@ class BROPBridgeClient {
       format: format === 'jpeg' ? 'jpeg' : 'png'
     });
 
-    return { 
+    return {
       image_data: dataUrl.split(',')[1],
       format: format
     };
@@ -1565,7 +1797,7 @@ class BROPBridgeClient {
   async handleNavigate(params) {
     const { url } = params;
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    
+
     if (!activeTab) {
       throw new Error('No active tab found');
     }
@@ -1591,17 +1823,17 @@ class BROPBridgeClient {
 
   async cdpBrowserGetBrowserContexts(params) {
     // Return a default browser context
-    return { 
-      browserContextIds: ["default"] 
+    return {
+      browserContextIds: ["default"]
     };
   }
 
   async cdpTargetActivateTarget(params) {
     const { targetId } = params;
-    
+
     // Extract tab ID from target ID and activate the tab
     if (targetId.startsWith('tab_')) {
-      const tabId = parseInt(targetId.replace('tab_', ''));
+      const tabId = Number.parseInt(targetId.replace('tab_', ''));
       try {
         await chrome.tabs.update(tabId, { active: true });
         return {};
@@ -1610,7 +1842,7 @@ class BROPBridgeClient {
         return {};
       }
     }
-    
+
     return {};
   }
 
@@ -1623,7 +1855,7 @@ class BROPBridgeClient {
   async cdpTargetSendMessageToTarget(params) {
     const { message, sessionId, targetId } = params;
     console.log('Send message to target:', { message: message?.substring(0, 100), sessionId, targetId });
-    
+
     // For now, just acknowledge the message was sent
     // In a full implementation, this would route the message to the appropriate target
     return {};
@@ -1662,11 +1894,11 @@ class BROPBridgeClient {
 
   async cdpTargetCreateBrowserContext(params) {
     const { disposeOnDetach, proxyServer, proxyBypassList } = params;
-    
+
     // Generate a unique browser context ID  
     const contextId = `context_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     console.log('Creating target browser context:', contextId);
-    
+
     // This is the same as Browser.createBrowserContext but under Target domain
     return { browserContextId: contextId };
   }
@@ -1690,7 +1922,7 @@ class BROPBridgeClient {
   async handleWaitForElement(params) { /* Implementation */ }
   async handleEvaluateJS(params) { /* Implementation */ }
   async handleGetElement(params) { /* Implementation */ }
-  
+
   async handleGetSimplifiedDOM(params) {
     // Forward simplified DOM request to active tab's content script
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -1701,7 +1933,7 @@ class BROPBridgeClient {
     try {
       // First try to send message to content script
       let result = null;
-      
+
       try {
         result = await chrome.tabs.sendMessage(activeTab.id, {
           type: 'BROP_EXECUTE',
@@ -1746,7 +1978,7 @@ class BROPBridgeClient {
 
           const simplifyElement = (element, depth) => {
             if (!element || depth > config.maxDepth) return null;
-            
+
             const tagName = element.tagName?.toLowerCase();
             if (!tagName || tagName === 'script' || tagName === 'style') return null;
 
@@ -1771,31 +2003,31 @@ class BROPBridgeClient {
           try {
             const rootElement = document.body || document.documentElement;
             const simplifiedTree = simplifyElement(rootElement, 0);
-            
+
             if (config.format === 'markdown') {
               const convertToMarkdown = (node, depth = 0) => {
                 if (!node) return '';
                 let result = '';
-                
+
                 switch (node.tag) {
                   case 'h1': result = `# ${node.text}\n\n`; break;
                   case 'h2': result = `## ${node.text}\n\n`; break;
                   case 'h3': result = `### ${node.text}\n\n`; break;
                   case 'p': result = `${node.text}\n\n`; break;
                   case 'a': result = `[${node.text}](#)\n`; break;
-                  default: 
+                  default:
                     if (node.text) result = `${node.text}\n`;
                 }
-                
+
                 if (node.children) {
                   result += node.children.map(child => convertToMarkdown(child, depth + 1)).join('');
                 }
-                
+
                 return result;
               };
-              
+
               const markdownContent = convertToMarkdown(simplifiedTree);
-              
+
               return {
                 success: true,
                 result: {
@@ -1836,7 +2068,7 @@ class BROPBridgeClient {
   async handleGetExtensionErrors(params) {
     const limit = params?.limit || 50;
     const errors = this.extensionErrors.slice(0, limit);
-    
+
     return {
       errors: errors,
       total_errors: this.extensionErrors.length,
@@ -1851,7 +2083,7 @@ class BROPBridgeClient {
 
   async handleGetChromeExtensionErrors(params) {
     const errors = [];
-    
+
     try {
       // Method 1: Check chrome.runtime.lastError if available
       if (chrome.runtime.lastError) {
@@ -1862,7 +2094,7 @@ class BROPBridgeClient {
           source: 'chrome.runtime.lastError'
         });
       }
-      
+
       // Method 2: Try to access extension management API for error details
       if (chrome.management) {
         try {
@@ -1875,7 +2107,7 @@ class BROPBridgeClient {
               }
             });
           });
-          
+
           // Note: Chrome doesn't provide direct API access to extension console errors
           // This is a limitation of the Chrome Extension API
         } catch (error) {
@@ -1887,10 +2119,10 @@ class BROPBridgeClient {
           });
         }
       }
-      
+
       // Method 3: Check for specific Chrome extension error patterns
       // We'll need to capture these through other means since Chrome doesn't expose them directly
-      
+
       // Method 4: Check debugger attachment errors
       const debuggerErrors = [];
       for (const tabId of this.debuggerAttached) {
@@ -1908,7 +2140,7 @@ class BROPBridgeClient {
           }
         } catch (error) {
           debuggerErrors.push({
-            type: 'Debugger Tab Error', 
+            type: 'Debugger Tab Error',
             message: `Failed to access tab ${tabId}: ${error.message}`,
             timestamp: Date.now(),
             source: 'debugger_tab_check',
@@ -1916,9 +2148,9 @@ class BROPBridgeClient {
           });
         }
       }
-      
+
       errors.push(...debuggerErrors);
-      
+
       // Method 5: Check for invalid debugger sessions
       for (const [tabId, session] of this.debuggerSessions) {
         try {
@@ -1936,18 +2168,18 @@ class BROPBridgeClient {
           errors.push({
             type: 'Debugger Session Error',
             message: `Invalid debugger session for tab ${tabId}: ${error.message}`,
-            timestamp: Date.now(), 
+            timestamp: Date.now(),
             source: 'debugger_session_check',
             tabId: tabId
           });
         }
       }
-      
+
       // Method 6: Get all current tabs and check for inconsistencies
       try {
         const allTabs = await chrome.tabs.query({});
         const existingTabIds = new Set(allTabs.map(tab => tab.id));
-        
+
         // Check for debugger attachments to non-existent tabs
         for (const attachedTabId of this.debuggerAttached) {
           if (!existingTabIds.has(attachedTabId)) {
@@ -1960,7 +2192,7 @@ class BROPBridgeClient {
             });
           }
         }
-        
+
       } catch (error) {
         errors.push({
           type: 'Tab Query Error',
@@ -1969,7 +2201,7 @@ class BROPBridgeClient {
           source: 'chrome.tabs.query'
         });
       }
-      
+
       return {
         chrome_errors: errors,
         total_chrome_errors: errors.length,
@@ -1978,7 +2210,7 @@ class BROPBridgeClient {
         note: 'Chrome Extension API does not expose console errors directly. These are detected issues based on extension state.',
         limitation: 'To see actual Chrome extension console errors, check chrome://extensions/ > Developer mode > Errors button for this extension'
       };
-      
+
     } catch (error) {
       return {
         chrome_errors: [{
@@ -1995,18 +2227,18 @@ class BROPBridgeClient {
 
   async handleClearExtensionErrors(params) {
     const clearedCount = this.extensionErrors.length;
-    
+
     // Clear all extension errors
     this.extensionErrors = [];
-    
+
     // Also clear call logs if requested
     if (params?.clearLogs) {
       const clearedLogs = this.callLogs.length;
       this.callLogs = [];
-      
+
       // Save cleared state
       await this.saveSettings();
-      
+
       return {
         success: true,
         cleared_errors: clearedCount,
@@ -2016,7 +2248,7 @@ class BROPBridgeClient {
     } else {
       // Save cleared state
       await this.saveSettings();
-      
+
       return {
         success: true,
         cleared_errors: clearedCount,
@@ -2028,7 +2260,7 @@ class BROPBridgeClient {
   async handleReloadExtension(params) {
     const reloadReason = params?.reason || 'Manual reload requested';
     const delay = params?.delay || 1000; // Default 1 second delay
-    
+
     try {
       // Log the reload event
       this.logError('Extension Reload', `Extension reload requested: ${reloadReason}`, null, {
@@ -2036,26 +2268,26 @@ class BROPBridgeClient {
         delay: delay,
         timestamp: Date.now()
       });
-      
+
       // Save current state before reload
       await this.saveSettings();
-      
+
       // Schedule the reload
       setTimeout(() => {
         console.log(`[BROP] Reloading extension: ${reloadReason}`);
         chrome.runtime.reload();
       }, delay);
-      
+
       return {
         success: true,
         message: `Extension will reload in ${delay}ms`,
         reason: reloadReason,
         scheduled_time: Date.now() + delay
       };
-      
+
     } catch (error) {
       this.logError('Extension Reload Error', `Failed to reload extension: ${error.message}`, error.stack);
-      
+
       return {
         success: false,
         error: error.message,
@@ -2068,9 +2300,9 @@ class BROPBridgeClient {
     // This is a NEW feature added specifically to test extension reload
     const timestamp = new Date().toISOString();
     const message = params?.message || 'Hello from the NEW reload test feature!';
-    
+
     console.log(`[BROP] 🆕 NEW FEATURE CALLED: test_reload_feature at ${timestamp}`);
-    
+
     return {
       success: true,
       message: message,
@@ -2080,7 +2312,7 @@ class BROPBridgeClient {
       note: 'This feature was added to test extension reload mechanism'
     };
   }
-  
+
   async cdpDOMGetDocument(params) { /* Implementation */ }
   async cdpDOMQuerySelector(params) { /* Implementation */ }
   async cdpInputDispatchMouseEvent(params) { /* Implementation */ }
@@ -2128,7 +2360,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     });
   } else if (messageType === 'SET_ENABLED') {
     bropBridgeClient.enabled = message.enabled;
-    
+
     // Attach or detach debuggers based on enabled state
     if (message.enabled && bropBridgeClient.isConnected) {
       // Enable service - attach debuggers to show "debugging this browser"
@@ -2137,7 +2369,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       // Disable service - detach debuggers to remove "debugging this browser"
       bropBridgeClient.detachDebuggerFromAllTabs();
     }
-    
+
     bropBridgeClient.saveSettings();
     sendResponse({ success: true });
   } else if (messageType === 'GET_LOGS') {
@@ -2154,7 +2386,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: false, error: 'BROP service is disabled' });
       return;
     }
-    
+
     const startTime = Date.now();
     bropBridgeClient.processBROPCommand(message).then(result => {
       const duration = Date.now() - startTime;
