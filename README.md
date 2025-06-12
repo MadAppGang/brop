@@ -1,108 +1,128 @@
 # BROP - Browser Remote Operations Protocol
 
-A Chrome extension that provides a WebSocket interface with Protocol Buffers for browser automation, similar to Playwright but running as a browser extension.
+A Chrome extension that provides native browser automation capabilities through a WebSocket bridge server and Chrome extension interface.
 
 ## Features
 
-- **WebSocket API**: Real-time communication with external applications
-- **Protocol Buffers**: Efficient binary serialization for commands and responses
-- **Console Access**: Capture console logs and execute JavaScript in browser console
-- **Screenshot Capture**: Take full-page or viewport screenshots
-- **Page Content Extraction**: Get HTML, text content, and metadata
-- **Element Interaction**: Click, type, wait for elements
-- **Navigation Control**: Navigate pages with load waiting
-- **JavaScript Evaluation**: Execute code in page context
+- **Bridge Server**: WebSocket server providing Chrome DevTools Protocol (CDP) compatibility
+- **Native Extension**: Chrome extension for direct browser control and automation
+- **JavaScript Execution**: Execute code in page context and capture console logs
+- **DOM Operations**: Simplified DOM extraction and element interaction
+- **Screenshot Capture**: Take screenshots of browser tabs
+- **Navigation Control**: Navigate pages with status monitoring
+- **Debug Toolkit**: Comprehensive debugging and monitoring tools
 
 ## Installation
 
-1. **Load the extension in Chrome:**
+1. **Install dependencies:**
+```bash
+pnpm install
+```
+
+2. **Load the extension in Chrome:**
    - Open Chrome and go to `chrome://extensions/`
    - Enable "Developer mode"
    - Click "Load unpacked" and select this directory
 
-2. **Install Python dependencies (for client tools):**
+3. **Start the bridge server:**
 ```bash
-cd python-client
-pip install -r requirements.txt
+pnpm run dev
 ```
 
-**Note:** No build process required! The extension works immediately without compilation.
+**Note:** No build process required! The extension works immediately after loading.
 
 ## Usage
 
-### Chrome Extension
+### Bridge Server
 
-Once installed, the extension will:
-- Show a popup with connection status and recent console logs
-- Inject content scripts into all pages to enable automation
-- Run a background service worker to handle WebSocket connections
-
-### Python Client
-
-Use the provided Playwright integration for full browser automation:
-
-```python
-from playwright.async_api import async_playwright
-
-async def main():
-    async with async_playwright() as p:
-        # Connect to BROP's embedded CDP server
-        browser = await p.chromium.connect_over_cdp("ws://localhost:9222")
-        page = browser.contexts[0].pages[0]
-        
-        # Navigate and interact
-        await page.goto("https://example.com")
-        title = await page.title()
-        await page.screenshot(path="screenshot.png")
-        
-        print(f"Page title: {title}")
-        await browser.close()
-
-# Run the example
-import asyncio
-asyncio.run(main())
+Start the development server with auto-reload:
+```bash
+pnpm run dev
 ```
 
-**See [python-client/](python-client/) directory for more examples and tools.**
+The bridge server provides:
+- WebSocket endpoint on `ws://localhost:9223`
+- HTTP discovery endpoint on `http://localhost:9225`
+- Chrome DevTools Protocol compatibility
+- Real-time logging and debugging
+
+### Chrome Extension
+
+Once loaded, the extension will:
+- Show a popup with service status and connection details
+- Inject content scripts into pages for DOM operations
+- Run background scripts to handle automation commands
+- Provide debugging and monitoring tools
+
+### JavaScript Client
+
+Connect to the bridge server using WebSocket:
+
+```javascript
+const ws = new WebSocket('ws://localhost:9223');
+
+ws.onopen = () => {
+    // Send CDP-compatible commands
+    ws.send(JSON.stringify({
+        id: 1,
+        method: 'Runtime.evaluate',
+        params: { expression: 'document.title' }
+    }));
+};
+
+ws.onmessage = (event) => {
+    const response = JSON.parse(event.data);
+    console.log('Response:', response);
+};
+```
 
 ## API Reference
 
-### Commands
+### Bridge Server Commands
 
-All commands follow the Protocol Buffer schema defined in `proto/browser_commands.proto`:
+The bridge server supports Chrome DevTools Protocol (CDP) methods:
 
-#### Console Commands
-- `get_console_logs`: Retrieve browser console logs
-- `execute_console`: Execute JavaScript code in console
+#### Runtime Commands
+- `Runtime.evaluate`: Execute JavaScript in page context
+- `Runtime.getProperties`: Get object properties
+- `Runtime.callFunctionOn`: Call function on remote object
 
 #### Page Commands  
-- `get_screenshot`: Capture page screenshot
-- `get_page_content`: Extract page HTML, text, and metadata
-- `navigate`: Navigate to a URL
+- `Page.navigate`: Navigate to a URL
+- `Page.captureScreenshot`: Capture page screenshot
+- `Page.getLayoutMetrics`: Get page layout information
 
-#### Element Commands
-- `click`: Click on an element
-- `type`: Type text into an element  
-- `wait_for_element`: Wait for element to appear/disappear
-- `get_element`: Get element information
+#### DOM Commands
+- `DOM.getDocument`: Get document root node
+- `DOM.querySelector`: Query for elements
+- `DOM.getOuterHTML`: Get element HTML
 
-#### JavaScript Commands
-- `evaluate_js`: Evaluate JavaScript in page context
+#### Native BROP Commands
+- `get_simplified_dom`: Get simplified DOM structure
+- `get_console_logs`: Retrieve browser console logs
+- `get_page_content`: Extract page content and metadata
 
 ### Response Format
 
-All responses include:
-- `success`: Boolean indicating if command succeeded
-- `error`: Error message if command failed
-- `result`: Command-specific result data
+All responses follow CDP format:
+- `id`: Request identifier
+- `result`: Command result data (on success)
+- `error`: Error information (on failure)
 
 ## Architecture
 
 ```
 ┌─────────────────┐    WebSocket     ┌──────────────────┐
-│   Client App    │ ◄─────────────► │  Chrome Extension │
-│  (Python/Node)  │   + ProtoBuf    │  Background Script│
+│   Client App    │ ◄─────────────► │  Bridge Server   │
+│  (JavaScript)   │      CDP        │  (Node.js)       │
 └─────────────────┘                 └──────────────────┘
+                                             │
+                                             │ Extension API
+                                             ▼
+                                    ┌──────────────────┐
+                                    │  Chrome Extension │
+                                    │  Background Script│
+                                    └──────────────────┘
                                              │
                                              │ Chrome APIs
                                              ▼
@@ -114,101 +134,80 @@ All responses include:
 
 ### Components
 
-1. **Background Script** (`background.js`): Service worker that handles WebSocket connections and Chrome API calls
-2. **Content Script** (`content.js`): Injected into web pages for DOM interaction and console monitoring  
-3. **Injected Script** (`injected.js`): Runs in page context for enhanced console access
-4. **Protocol Buffers** (`proto/browser_commands.proto`): Defines command/response schema
-5. **Popup** (`popup.html/js`): Extension UI showing status and recent logs
+1. **Bridge Server** (`bridge-server/bridge_server.js`): Node.js WebSocket server providing CDP compatibility
+2. **Background Script** (`background_bridge_client.js`): Extension service worker handling automation commands
+3. **Content Script** (`content.js`): Injected into web pages for DOM interaction and monitoring  
+4. **Injected Script** (`injected.js`): Runs in page context for enhanced JavaScript execution
+5. **Popup** (`popup.html/js`): Extension UI showing service status and debugging tools
+6. **DOM Simplifier** (`dom_simplifier.js`): Utility for extracting simplified DOM structures
 
 ## Development
 
-### Building Protocol Buffers
-
-```bash
-npm run build:proto
-```
-
 ### Development Mode
 
+Start the bridge server with auto-reload:
 ```bash
-npm run dev
+pnpm run dev
 ```
 
 ### Testing
 
-Load the extension in Chrome and run:
-
+Run the comprehensive test suite:
 ```bash
-python client_example.py
+cd tests
+./run_all_brop_tests.sh
 ```
 
-## Playwright Integration
-
-**✅ Yes! Playwright can connect to BROP directly through the embedded CDP server.**
-
-The extension includes a built-in Chrome DevTools Protocol (CDP) server that Playwright can connect to directly.
-
-### Setup
-
-1. **Load the BROP extension** in Chrome
-2. **Use Playwright normally:**
-```python
-from playwright.async_api import async_playwright
-
-async with async_playwright() as p:
-    # Connect to BROP's embedded CDP server
-    browser = await p.chromium.connect_over_cdp("ws://localhost:9222")
-    page = browser.contexts[0].pages[0]  # Use existing tab
-    await page.goto("https://example.com")
-    title = await page.title()
-    await browser.close()
-```
-
-3. **Run the example:**
+Or run individual tests:
 ```bash
-cd python-client
-python playwright_embedded_example.py
+node tests/working_brop_test.js
+node tests/test_bridge_connection.js
 ```
 
-### How It Works
+## Debug Toolkit
 
+BROP includes comprehensive debugging tools accessible via npm scripts:
+
+### Extension Error Collection
+```bash
+pnpm run debug:errors    # Get current extension errors
+pnpm run debug:clear     # Clear extension errors for fresh testing
 ```
-┌─────────────────┐   CDP Protocol   ┌──────────────────┐
-│   Playwright    │ ◄──────────────► │  Chrome Extension│
-│   Python/Node   │   WebSocket      │  (Embedded CDP)  │
-└─────────────────┘                  └──────────────────┘
+
+### Extension Management
+```bash
+pnpm run debug:reload    # Remotely reload Chrome extension
 ```
 
-The embedded CDP server:
-- Built directly into the Chrome extension
-- Implements Chrome DevTools Protocol that Playwright expects
-- No external bridge server required
-- Manages sessions and provides browser discovery endpoints
+### Bridge Server Logs
+```bash
+pnpm run debug:logs      # Get bridge server console logs remotely
+```
 
-## Comparison with Playwright
+### Complete Debug Workflow
+```bash
+pnpm run debug:workflow  # Run full debug cycle
+```
 
-| Feature | Standard Playwright | BROP + Playwright |
-|---------|---------------------|-------------------|
-| **Installation** | External binary + Python package | Chrome extension only |
-| **Browser Support** | Chrome, Firefox, Safari, Edge | Chrome only (via extension) |
-| **Deployment** | Requires browser installation | Uses existing Chrome instance |
-| **Permissions** | Full system access | Browser sandbox only |
-| **Performance** | Direct browser control | Extension API overhead |
-| **Use Cases** | Automated testing, scraping | Browser enhancement, existing tab automation |
-| **API** | Full Playwright API | Most Playwright features supported |
+### Testing Commands
+```bash
+pnpm run test:complete   # Complete flow test
+pnpm run test:reload     # Test extension reload mechanism
+```
 
 ## Limitations
 
 - Chrome extension permissions and security model
 - Limited to Chrome/Chromium browsers
-- Some actions may be slower than direct browser automation
+- Extension API overhead compared to direct browser control
 - Cannot access chrome:// internal pages (security restriction)
+- Requires bridge server to be running for external connections
 
 ## Security Notes
 
 - The extension requests broad permissions for full functionality
-- All communication uses Chrome's secure runtime messaging
-- No external server dependencies or network exposure
+- All communication uses Chrome's secure runtime messaging and WebSocket
+- Bridge server runs locally on configurable ports
 - Runs within Chrome's security sandbox
 
 ## License
@@ -220,82 +219,77 @@ MIT License - see LICENSE file for details
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Test with the Python client
+4. Test with the BROP test suite
 5. Submit a pull request
 
 ## Development & Debugging
 
-For detailed instructions on running and debugging the extension, see:
-- **[DEVELOPMENT_GUIDE.md](DEVELOPMENT_GUIDE.md)** - Complete setup, debugging, and troubleshooting guide
-- **[EMBEDDED_SETUP.md](EMBEDDED_SETUP.md)** - Embedded version setup instructions
+For detailed development instructions, see **[CLAUDE.md](CLAUDE.md)** - Complete debugging toolkit and workflow guide.
 
 ### Quick Debug Commands
 
 **Extension Console (chrome://extensions/ → BROP → Inspect views):**
 ```javascript
-// Check service status
-embeddedBropServer.enabled
+// Check bridge server connection
+bridgeConnection.isConnected
 
-// View recent logs  
-embeddedBropServer.getRecentLogs(10)
+// View recent activity logs  
+logs.getLogs(10)
 
-// Check active sessions
-embeddedBropServer.sessions.size
+// Check extension status
+extensionAPI.getStatus()
 ```
 
 **Page Console (F12 on any webpage):**
 ```javascript
 // Test content script
-window.BROP.getConsoleLogs()
+window.BROP?.getConsoleLogs()
 
-// Test injected script
-window.BROP_API.executeInPageContext("document.title")
+// Test simplified DOM
+window.BROP?.getSimplifiedDOM()
 ```
 
-**Python Client Debug:**
-```python
-import logging
-logging.basicConfig(level=logging.DEBUG)
+**Bridge Server Debug:**
+```bash
+# View real-time logs
+pnpm run debug:logs
 
-# From python-client directory
-from client_example import BROPClient
-client = BROPClient()
-await client.connect()
+# Check server status  
+curl http://localhost:9225/json/version
 ```
 
-## Plugin UI Features
+## Extension UI Features
 
-The extension popup now includes:
+The extension popup includes:
 
 ### 🎛️ **Service Control**
-- **Toggle Switch** - Enable/disable BROP service
-- **Real-time Status** - Active/inactive indicator
-- **Performance Stats** - Call count and active sessions
+- **Service Status** - Bridge server connection indicator
+- **Extension Health** - Background script and content script status
+- **Debug Controls** - Quick access to debugging functions
 
-### 📊 **Call Logs Viewer**
-- **Real-time Monitoring** - See all API calls as they happen
-- **Advanced Filtering** - Filter by type (CDP/BROP/SYSTEM), status, or search
-- **Export Logs** - Download call history as JSON
-- **Performance Metrics** - Execution duration for each call
+### 📊 **Activity Monitoring**
+- **Real-time Logs** - See automation commands as they execute
+- **Performance Metrics** - Response times and success rates
+- **Error Tracking** - Monitor and diagnose issues
 
-### ⚙️ **Settings & Status**
-- **Connection Methods** - Status of Runtime/Native/CDP interfaces
-- **Storage Management** - Clear logs and reset settings
-- **Debug Information** - Extension health and capabilities
+### ⚙️ **Settings & Tools**
+- **Connection Settings** - Configure bridge server endpoints
+- **Debug Utilities** - Access to error collection and diagnostics
+- **Extension Management** - Reload and reset functions
 
 ## Quick Start
 
-1. **Load the extension** in Chrome developer mode
-2. **Open the popup** and verify service is active
-3. **Test connection** using the "Test Connection" button
-4. **Monitor activity** in the "Call Logs" tab
-5. **Run automation** with Python tools in `python-client/` directory
+1. **Install dependencies:** `pnpm install`
+2. **Load the extension** in Chrome developer mode
+3. **Start bridge server:** `pnpm run dev`
+4. **Open the popup** and verify connection
+5. **Run tests:** `cd tests && ./run_all_brop_tests.sh`
 
 ## Roadmap
 
-- [ ] Authentication and security improvements
+- [ ] Enhanced debugging and monitoring tools
 - [ ] Firefox extension support  
-- [ ] Additional automation commands
+- [ ] Additional CDP method implementations
 - [ ] Performance optimizations
 - [ ] TypeScript conversion
-- [ ] npm package for client library
+- [ ] npm package for JavaScript client library
