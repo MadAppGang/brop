@@ -19,17 +19,8 @@ class BROPBridgeClient {
 
     this.bridgeUrl = 'ws://localhost:9224'; // Extension server port
 
-    // Track target discovery state
-    this.targetsDiscovered = false;
-    this.sentTargetIds = new Set();
-
-    // Track debugger sessions for showing "debugging this browser" status
-    this.debuggerSessions = new Map(); // tabId -> debuggee
-    this.debuggerAttached = new Set(); // Set of attached tab IDs
-
     this.messageHandlers = new Map();
     this.setupMessageHandlers();
-    this.setupDebuggerHandlers();
     this.setupErrorHandlers();
     this.loadSettings();
     this.connectToBridge();
@@ -53,172 +44,10 @@ class BROPBridgeClient {
     this.messageHandlers.set('clear_extension_errors', this.handleClearExtensionErrors.bind(this));
     this.messageHandlers.set('reload_extension', this.handleReloadExtension.bind(this));
     this.messageHandlers.set('test_reload_feature', this.handleTestReloadFeature.bind(this));
-
-    // CDP command handlers
-    this.cdpHandlers = new Map([
-      ['Browser.getVersion', this.cdpBrowserGetVersion.bind(this)],
-      ['Browser.setDownloadBehavior', this.cdpBrowserSetDownloadBehavior.bind(this)],
-      ['Browser.getWindowForTarget', this.cdpBrowserGetWindowForTarget.bind(this)],
-      ['Browser.createBrowserContext', this.cdpBrowserCreateBrowserContext.bind(this)],
-      ['Browser.disposeBrowserContext', this.cdpBrowserDisposeBrowserContext.bind(this)],
-      ['Browser.getBrowserContexts', this.cdpBrowserGetBrowserContexts.bind(this)],
-      ['Target.setDiscoverTargets', this.cdpTargetSetDiscoverTargets.bind(this)],
-      ['Target.getTargets', this.cdpTargetGetTargets.bind(this)],
-      ['Target.attachToTarget', this.cdpTargetAttachToTarget.bind(this)],
-      ['Target.setAutoAttach', this.cdpTargetSetAutoAttach.bind(this)],
-      ['Target.getTargetInfo', this.cdpTargetGetTargetInfo.bind(this)],
-      ['Target.createTarget', this.cdpTargetCreateTarget.bind(this)],
-      ['Target.closeTarget', this.cdpTargetCloseTarget.bind(this)],
-      ['Target.activateTarget', this.cdpTargetActivateTarget.bind(this)],
-      ['Target.detachFromTarget', this.cdpTargetDetachFromTarget.bind(this)],
-      ['Target.sendMessageToTarget', this.cdpTargetSendMessageToTarget.bind(this)],
-      ['Target.receivedMessageFromTarget', this.cdpTargetReceivedMessageFromTarget.bind(this)],
-      ['Target.targetCrashed', this.cdpTargetTargetCrashed.bind(this)],
-      ['Target.targetDestroyed', this.cdpTargetTargetDestroyed.bind(this)],
-      ['Target.setRemoteLocations', this.cdpTargetSetRemoteLocations.bind(this)],
-      ['Target.createBrowserContext', this.cdpTargetCreateBrowserContext.bind(this)],
-      ['Target.disposeBrowserContext', this.cdpTargetDisposeBrowserContext.bind(this)],
-      ['Target.setAttachToFrames', this.cdpTargetSetAttachToFrames.bind(this)],
-      ['Browser.close', this.cdpBrowserClose.bind(this)],
-      ['Browser.crash', this.cdpBrowserCrash.bind(this)],
-      ['Runtime.enable', this.cdpRuntimeEnable.bind(this)],
-      ['Runtime.addBinding', this.cdpRuntimeAddBinding.bind(this)],
-      ['Page.enable', this.cdpPageEnable.bind(this)],
-      ['Page.addScriptToEvaluateOnNewDocument', this.cdpPageAddScriptToEvaluateOnNewDocument.bind(this)],
-      ['Page.removeScriptToEvaluateOnNewDocument', this.cdpPageRemoveScriptToEvaluateOnNewDocument.bind(this)],
-      ['Page.setLifecycleEventsEnabled', this.cdpPageSetLifecycleEventsEnabled.bind(this)],
-      ['Page.getFrameTree', this.cdpPageGetFrameTree.bind(this)],
-      ['Runtime.runIfWaitingForDebugger', this.cdpRuntimeRunIfWaitingForDebugger.bind(this)],
-      ['Runtime.setCustomObjectFormatterEnabled', this.cdpRuntimeSetCustomObjectFormatterEnabled.bind(this)],
-      ['Network.enable', this.cdpNetworkEnable.bind(this)],
-      ['Log.enable', this.cdpLogEnable.bind(this)],
-      ['Emulation.setFocusEmulationEnabled', this.cdpEmulationSetFocusEmulationEnabled.bind(this)],
-      ['Emulation.setEmulatedMedia', this.cdpEmulationSetEmulatedMedia.bind(this)],
-      ['Page.navigate', this.cdpPageNavigate.bind(this)],
-      ['Runtime.evaluate', this.cdpRuntimeEvaluate.bind(this)],
-      ['Page.captureScreenshot', this.cdpPageCaptureScreenshot.bind(this)],
-      ['DOM.getDocument', this.cdpDOMGetDocument.bind(this)],
-      ['DOM.querySelector', this.cdpDOMQuerySelector.bind(this)],
-      ['Input.dispatchMouseEvent', this.cdpInputDispatchMouseEvent.bind(this)],
-      ['Input.insertText', this.cdpInputInsertText.bind(this)]
-    ]);
-  }
-
-  setupDebuggerHandlers() {
-    // Store console messages globally for all tabs
-    this.globalConsoleMessages = new Map(); // tabId -> array of console messages
-    
-    // Listen for debugger events
-    chrome.debugger.onEvent.addListener((source, method, params) => {
-      this.handleDebuggerEvent(source, method, params);
-    });
-
-    // Listen for debugger detach events
-    chrome.debugger.onDetach.addListener((source, reason) => {
-      this.handleDebuggerDetach(source, reason);
-    });
-
-    // Listen for tab events to manage debugger sessions
-    chrome.tabs.onCreated.addListener((tab) => {
-      this.handleTabCreated(tab);
-    });
-
-    chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
-      this.handleTabRemoved(tabId, removeInfo);
-    });
-
-    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-      this.handleTabUpdated(tabId, changeInfo, tab);
-    });
-  }
-
-  async attachDebuggerToTab(tabId) {
-    try {
-      if (this.debuggerAttached.has(tabId)) {
-        console.log(`🔧 DEBUG: Debugger already attached to tab ${tabId}`);
-        return true;
-      }
-
-      const debuggee = { tabId: tabId };
-
-      // Attach debugger with CDP version
-      await chrome.debugger.attach(debuggee, "1.3");
-
-      // Enable required CDP domains
-      await chrome.debugger.sendCommand(debuggee, "Runtime.enable", {});
-      await chrome.debugger.sendCommand(debuggee, "Page.enable", {});
-      await chrome.debugger.sendCommand(debuggee, "Network.enable", {});
-      await chrome.debugger.sendCommand(debuggee, "Log.enable", {});
-      await chrome.debugger.sendCommand(debuggee, "Console.enable", {});
-      
-      console.log(`🔧 DEBUG: All CDP domains enabled for tab ${tabId} including Console domain`);
-
-      this.debuggerSessions.set(tabId, debuggee);
-      this.debuggerAttached.add(tabId);
-
-      console.log(`✅ Debugger attached to tab ${tabId} - "debugging this browser" status active`);
-
-      // Update the tab's title to show debugging status
-      chrome.tabs.get(tabId, (tab) => {
-        if (tab && !tab.title.includes('🔧')) {
-          // Add debugging indicator to tab title (this may not work due to browser restrictions)
-          console.log(`🔧 Tab ${tabId} is now being debugged: ${tab.title}`);
-        }
-      });
-
-      return true;
-    } catch (error) {
-      console.error(`Failed to attach debugger to tab ${tabId}:`, error);
-      return false;
-    }
-  }
-
-  async detachDebuggerFromTab(tabId) {
-    try {
-      if (!this.debuggerAttached.has(tabId)) {
-        return true;
-      }
-
-      const debuggee = this.debuggerSessions.get(tabId);
-      if (debuggee) {
-        await chrome.debugger.detach(debuggee);
-        this.debuggerSessions.delete(tabId);
-        this.debuggerAttached.delete(tabId);
-        console.log(`✅ Debugger detached from tab ${tabId}`);
-      }
-
-      return true;
-    } catch (error) {
-      console.error(`Failed to detach debugger from tab ${tabId}:`, error);
-      return false;
-    }
-  }
-
-  async attachDebuggerToAllTabs() {
-    try {
-      const tabs = await chrome.tabs.query({});
-      const attachPromises = [];
-
-      for (const tab of tabs) {
-        // Skip chrome:// and extension pages
-        if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
-          continue;
-        }
-
-        attachPromises.push(this.attachDebuggerToTab(tab.id));
-      }
-
-      const results = await Promise.allSettled(attachPromises);
-      const successCount = results.filter(r => r.status === 'fulfilled' && r.value).length;
-
-      console.log(`🔧 Attached debugger to ${successCount}/${attachPromises.length} tabs`);
-      console.log(`🎯 Chrome should now show "debugging this browser" status`);
-
-      return successCount;
-    } catch (error) {
-      console.error('Failed to attach debugger to tabs:', error);
-      return 0;
-    }
+    this.messageHandlers.set('create_tab', this.handleCreateTab.bind(this));
+    this.messageHandlers.set('close_tab', this.handleCloseTab.bind(this));
+    this.messageHandlers.set('list_tabs', this.handleListTabs.bind(this));
+    this.messageHandlers.set('activate_tab', this.handleActivateTab.bind(this));
   }
 
   setupErrorHandlers() {
@@ -247,31 +76,6 @@ class BROPBridgeClient {
       });
     }
 
-    // 4. Capture debugger attachment errors
-    chrome.debugger.onDetach.addListener((source, reason) => {
-      if (reason && reason !== 'target_closed') {
-        this.logError('Debugger Detach Error', `Debugger detached from tab ${source.tabId}: ${reason}`, null, {
-          tabId: source.tabId,
-          reason: reason
-        });
-      }
-    });
-
-    // 5. Capture tab errors
-    chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
-      // Check if we had debugger attached to this tab
-      if (this.debuggerAttached.has(tabId)) {
-        this.logError('Tab Closed with Debugger', `Tab ${tabId} was closed while debugger was attached`, null, {
-          tabId: tabId,
-          removeInfo: removeInfo
-        });
-
-        // Clean up stale debugger attachment
-        this.debuggerAttached.delete(tabId);
-        this.debuggerSessions.delete(tabId);
-      }
-    });
-
     // 6. Monitor for Chrome API errors
     this.setupChromeAPIErrorMonitoring();
   }
@@ -285,19 +89,6 @@ class BROPBridgeClient {
       } catch (error) {
         this.logError('Chrome Tabs API Error', `tabs.update failed: ${error.message}`, error.stack, {
           api: 'chrome.tabs.update',
-          args: args
-        });
-        throw error;
-      }
-    };
-
-    const originalDebuggerAttach = chrome.debugger.attach;
-    chrome.debugger.attach = async (...args) => {
-      try {
-        return await originalDebuggerAttach.apply(chrome.debugger, args);
-      } catch (error) {
-        this.logError('Chrome Debugger API Error', `debugger.attach failed: ${error.message}`, error.stack, {
-          api: 'chrome.debugger.attach',
           args: args
         });
         throw error;
@@ -328,320 +119,6 @@ class BROPBridgeClient {
     console.error(`[BROP Error] ${type}: ${message}`, stack ? `\nStack: ${stack}` : '');
 
     this.saveSettings();
-  }
-
-  async detachDebuggerFromAllTabs() {
-    try {
-      const detachPromises = [];
-
-      for (const tabId of this.debuggerAttached) {
-        detachPromises.push(this.detachDebuggerFromTab(tabId));
-      }
-
-      await Promise.allSettled(detachPromises);
-      console.log('🔧 Detached debugger from all tabs');
-
-      return true;
-    } catch (error) {
-      console.error('Failed to detach debugger from tabs:', error);
-      return false;
-    }
-  }
-
-  handleDebuggerEvent(source, method, params) {
-    const tabId = source.tabId;
-    
-    // Capture console messages
-    if (method === 'Console.messageAdded') {
-      console.log(`🔧 DEBUG: Console message captured for tab ${tabId}:`, params);
-      
-      if (!this.globalConsoleMessages.has(tabId)) {
-        this.globalConsoleMessages.set(tabId, []);
-      }
-      
-      const consoleMessages = this.globalConsoleMessages.get(tabId);
-      consoleMessages.push({
-        level: params.level || 'log',
-        message: params.text || params.message || 'Unknown console message',
-        timestamp: params.timestamp || Date.now(),
-        source: 'console_api_captured',
-        url: params.url || 'unknown',
-        line: params.line || 0,
-        column: params.column || 0
-      });
-      
-      // Keep only recent messages (max 1000 per tab)
-      if (consoleMessages.length > 1000) {
-        consoleMessages.splice(0, consoleMessages.length - 1000);
-      }
-      
-      console.log(`🔧 DEBUG: Stored console message. Tab ${tabId} now has ${consoleMessages.length} messages`);
-    }
-    
-    // Also capture Runtime.consoleAPICalled events
-    if (method === 'Runtime.consoleAPICalled') {
-      console.log(`🔧 DEBUG: Runtime console API called for tab ${tabId}:`, params);
-      
-      if (!this.globalConsoleMessages.has(tabId)) {
-        this.globalConsoleMessages.set(tabId, []);
-      }
-      
-      const consoleMessages = this.globalConsoleMessages.get(tabId);
-      const args = params.args || [];
-      
-      // Extract message text from console API args
-      let message = '';
-      if (args.length > 0) {
-        message = args.map(arg => {
-          if (arg.type === 'string') return arg.value;
-          if (arg.type === 'number') return String(arg.value);
-          if (arg.type === 'object') return arg.description || '[Object]';
-          // Handle nested objects that might have text property
-          if (typeof arg === 'object' && arg.text) return arg.text;
-          return String(arg.value || arg.description || arg);
-        }).join(' ');
-      }
-      
-      // Also check for text in the params directly (some console events have it there)
-      if (!message && params.text) {
-        message = params.text;
-      }
-      
-      consoleMessages.push({
-        level: params.type || 'log',
-        message: message || 'Empty console message',
-        timestamp: params.timestamp || Date.now(),
-        source: 'runtime_console_api',
-        executionContextId: params.executionContextId,
-        stackTrace: params.stackTrace,
-        rawArgs: args // Keep raw args for debugging
-      });
-      
-      // Keep only recent messages (max 1000 per tab)
-      if (consoleMessages.length > 1000) {
-        consoleMessages.splice(0, consoleMessages.length - 1000);
-      }
-      
-      console.log(`🔧 DEBUG: Stored runtime console message: "${message}". Tab ${tabId} now has ${consoleMessages.length} messages`);
-    }
-    
-    // Forward debugger events to bridge if needed
-    if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
-      this.sendToBridge({
-        type: 'debugger_event',
-        tabId: source.tabId,
-        method: method,
-        params: params,
-        timestamp: Date.now()
-      });
-    }
-  }
-
-  handleDebuggerDetach(source, reason) {
-    const tabId = source.tabId;
-    const targetId = `tab_${tabId}`;
-    const sessionId = this.debuggerSessions.get(tabId);
-
-    console.log(`🔧 Debugger detached from tab ${tabId}, reason: ${reason}`);
-
-    // Notify clients about session detachment before cleanup
-    if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN && sessionId) {
-      // Send Target.detachedFromTarget event
-      this.sendToBridge({
-        type: 'event',
-        event_type: 'target_detached',
-        method: 'Target.detachedFromTarget',
-        params: {
-          sessionId: sessionId,
-          targetId: targetId
-        }
-      });
-      console.log(`📡 Sent Target.detachedFromTarget event for session ${sessionId} (reason: ${reason})`);
-
-      // Send custom BROP event for debugger detachment
-      this.sendToBridge({
-        type: 'session_event',
-        event_type: 'debugger_detached',
-        tabId: tabId,
-        targetId: targetId,
-        sessionId: sessionId,
-        reason: reason,
-        timestamp: Date.now()
-      });
-      console.log(`📡 Sent BROP debugger_detached session event for tab ${tabId}`);
-    }
-
-    // Clean up our tracking
-    this.debuggerSessions.delete(tabId);
-    this.debuggerAttached.delete(tabId);
-
-    // Log the debugger detachment
-    this.logCall(
-      'debugger_detached',
-      'SYSTEM',
-      { tabId, targetId, reason },
-      { sessionId },
-      reason === 'target_closed' ? null : `Debugger detached: ${reason}`,
-      null
-    );
-
-    // If we're still enabled and connected, try to reattach (unless user initiated detach or target closed)
-    if (this.enabled && this.isConnected && reason !== 'canceled_by_user' && reason !== 'target_closed') {
-      console.log(`⚡ Attempting to reattach debugger to tab ${tabId} in 1 second...`);
-      setTimeout(() => {
-        this.attachDebuggerToTab(tabId);
-      }, 1000);
-    }
-  }
-
-  handleTabCreated(tab) {
-    // Auto-attach debugger to new tabs if we're active
-    if (this.enabled && this.isConnected && tab.url &&
-      !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
-      setTimeout(() => {
-        this.attachDebuggerToTab(tab.id);
-      }, 500); // Small delay to let tab initialize
-    }
-  }
-
-  handleTabRemoved(tabId, removeInfo) {
-    const targetId = `tab_${tabId}`;
-
-    console.log(`🗑️ Tab ${tabId} removed - cleaning up sessions and notifying clients`);
-
-    // Get session info before cleanup for notifications
-    const hadDebuggerSession = this.debuggerAttached.has(tabId);
-    const sessionId = this.debuggerSessions.get(tabId);
-
-    // Clean up debugger session for removed tab
-    this.debuggerSessions.delete(tabId);
-    this.debuggerAttached.delete(tabId);
-    this.sentTargetIds.delete(targetId);
-
-    // Notify all listening clients about target destruction
-    if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
-      // Send Target.targetDestroyed event
-      this.sendToBridge({
-        type: 'event',
-        event_type: 'target_destroyed',
-        method: 'Target.targetDestroyed',
-        params: {
-          targetId: targetId
-        }
-      });
-      console.log(`📡 Sent Target.targetDestroyed event for tab ${tabId}`);
-
-      // If there was an active session, send detached event
-      if (hadDebuggerSession && sessionId) {
-        this.sendToBridge({
-          type: 'event',
-          event_type: 'target_detached',
-          method: 'Target.detachedFromTarget',
-          params: {
-            sessionId: sessionId,
-            targetId: targetId
-          }
-        });
-        console.log(`📡 Sent Target.detachedFromTarget event for session ${sessionId}`);
-      }
-
-      // Send custom BROP event for session cleanup
-      this.sendToBridge({
-        type: 'session_event',
-        event_type: 'tab_closed',
-        tabId: tabId,
-        targetId: targetId,
-        sessionId: sessionId,
-        removeInfo: removeInfo,
-        timestamp: Date.now()
-      });
-      console.log(`📡 Sent BROP tab_closed session event for tab ${tabId}`);
-    }
-
-    // Log the session termination
-    this.logCall(
-      'tab_removed',
-      'SYSTEM',
-      { tabId, targetId, removeInfo },
-      { sessionsCleaned: hadDebuggerSession ? 1 : 0 },
-      null,
-      null
-    );
-  }
-
-  handleTabUpdated(tabId, changeInfo, tab) {
-    const targetId = `tab_${tabId}`;
-
-    // If tab URL changed, notify clients about navigation
-    if (changeInfo.url && this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
-      console.log(`🧭 Tab ${tabId} navigated to: ${changeInfo.url}`);
-
-      // Send Page.frameNavigated event
-      this.sendToBridge({
-        type: 'event',
-        event_type: 'frame_navigated',
-        method: 'Page.frameNavigated',
-        params: {
-          frame: {
-            id: 'main_frame',
-            url: changeInfo.url,
-            securityOrigin: this.getSecurityOrigin(changeInfo.url),
-            mimeType: 'text/html'
-          }
-        }
-      });
-
-      // Send custom BROP navigation event
-      this.sendToBridge({
-        type: 'session_event',
-        event_type: 'tab_navigated',
-        tabId: tabId,
-        targetId: targetId,
-        oldUrl: tab.url,
-        newUrl: changeInfo.url,
-        timestamp: Date.now()
-      });
-      console.log(`📡 Sent navigation events for tab ${tabId}`);
-    }
-
-    // If status changed to loading, notify about navigation start
-    if (changeInfo.status === 'loading' && this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
-      this.sendToBridge({
-        type: 'event',
-        event_type: 'navigation_start',
-        method: 'Page.navigationStarted',
-        params: {
-          tabId: tabId,
-          targetId: targetId,
-          url: tab.url,
-          timestamp: Date.now()
-        }
-      });
-    }
-
-    // If status changed to complete, notify about navigation completion
-    if (changeInfo.status === 'complete' && this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
-      this.sendToBridge({
-        type: 'event',
-        event_type: 'navigation_complete',
-        method: 'Page.navigationCompleted',
-        params: {
-          tabId: tabId,
-          targetId: targetId,
-          url: tab.url,
-          timestamp: Date.now()
-        }
-      });
-    }
-
-    // If tab URL changed and we're not attached, attach debugger
-    if (this.enabled && this.isConnected && changeInfo.url &&
-      !this.debuggerAttached.has(tabId) &&
-      !tab.url.startsWith('chrome://') && !tab.url.startsWith('chrome-extension://')) {
-      setTimeout(() => {
-        this.attachDebuggerToTab(tabId);
-      }, 500);
-    }
   }
 
   async loadSettings() {
@@ -692,10 +169,6 @@ class BROPBridgeClient {
         this.lastConnectionTime = Date.now();
         this.reconnectAttempts = 0;
 
-        // Reset target discovery state on new connection
-        this.targetsDiscovered = false;
-        this.sentTargetIds.clear();
-
         // Clear any pending reconnect timer
         if (this.reconnectTimer) {
           clearTimeout(this.reconnectTimer);
@@ -709,13 +182,6 @@ class BROPBridgeClient {
           timestamp: Date.now()
         });
 
-        // Attach debugger to all tabs to show "debugging this browser" status
-        if (this.enabled) {
-          setTimeout(() => {
-            this.attachDebuggerToAllTabs();
-          }, 1000);
-        }
-
         this.broadcastStatusUpdate();
       };
 
@@ -728,9 +194,6 @@ class BROPBridgeClient {
         this.isConnected = false;
         this.connectionStatus = 'disconnected';
         this.bridgeSocket = null;
-
-        // Detach debuggers when disconnected to remove "debugging this browser" status
-        this.detachDebuggerFromAllTabs();
 
         this.broadcastStatusUpdate();
 
@@ -826,7 +289,6 @@ class BROPBridgeClient {
     }
     console.warn('Bridge connection not available, cannot send message');
     return false;
-
   }
 
   async handleBridgeMessage(data) {
@@ -840,9 +302,7 @@ class BROPBridgeClient {
         return;
       }
 
-      if (messageType === 'cdp_command') {
-        await this.processCDPCommand(message);
-      } else if (messageType === 'brop_command') {
+      if (messageType === 'brop_command') {
         await this.processBROPCommand(message);
       } else {
         console.warn('Unknown message type from bridge:', messageType);
@@ -858,68 +318,6 @@ class BROPBridgeClient {
           error: `Message handling error: ${error.message}`
         });
       }
-    }
-  }
-
-  async processCDPCommand(message) {
-    const { id, method, params, targetId } = message;
-
-    console.log(`Processing CDP command: ${method}${targetId ? ` (target: ${targetId})` : ''}`, params ? `with params: ${JSON.stringify(params).substring(0, 100)}` : '');
-
-    // Check if service is enabled
-    if (!this.enabled) {
-      console.log(`CDP command ignored (service disabled): ${method}`);
-      this.sendToBridge({
-        type: 'response',
-        id: id,
-        success: false,
-        error: 'BROP service is disabled'
-      });
-      return;
-    }
-
-    try {
-      const handler = this.cdpHandlers.get(method);
-      if (handler) {
-        // Pass target context to handler
-        const result = await handler(params, targetId);
-        console.log(`CDP command ${method} completed successfully${targetId ? ` for target ${targetId}` : ''}`);
-
-        // Log successful CDP command
-        this.logCall(method, 'CDP', params, result, null, null);
-
-        this.sendToBridge({
-          type: 'response',
-          id: id,
-          success: true,
-          result: result
-        });
-      } else {
-        console.warn(`Unsupported CDP method: ${method}`);
-
-        // Log unsupported CDP command
-        this.logCall(method, 'CDP', params, null, `Unsupported CDP method: ${method}`, null);
-
-        this.sendToBridge({
-          type: 'response',
-          id: id,
-          success: false,
-          error: `Unsupported CDP method: ${method}`
-        });
-      }
-    } catch (error) {
-      console.error(`CDP command error (${method}):`, error);
-      this.logError('CDP Command Error', `${method}: ${error.message}`, error.stack);
-
-      // Log failed CDP command
-      this.logCall(method, 'CDP', params, null, error.message, null);
-
-      this.sendToBridge({
-        type: 'response',
-        id: id,
-        success: false,
-        error: error.message
-      });
     }
   }
 
@@ -1005,854 +403,25 @@ class BROPBridgeClient {
     }
   }
 
-  // CDP Method Implementations
-  async cdpBrowserGetVersion(params) {
-    // Send existing targets immediately when Playwright first connects
-    // This ensures targets are available before any other operations
-    if (!this.targetsDiscovered) {
-      console.log('Browser.getVersion called - sending existing targets immediately');
-      await this.sendExistingTargets();
-    }
-
-    return {
-      protocolVersion: "1.3",
-      product: "Chrome/BROP-Extension",
-      revision: "@1.0.0",
-      userAgent: "Mozilla/5.0 (Chrome BROP Extension)",
-      jsVersion: "12.0.0"
-    };
-  }
-
-  async sendExistingTargets() {
-    if (this.targetsDiscovered) {
-      console.log('Targets already discovered - skipping');
-      return;
-    }
-
-    console.log('Sending existing targets proactively...');
-    this.targetsDiscovered = true;
-
-    const tabs = await chrome.tabs.query({});
-    console.log(`Found ${tabs.length} existing tabs to send proactively`);
-
-    for (const tab of tabs) {
-      // Skip chrome:// URLs and other internal pages
-      if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
-        console.log(`Skipping internal tab: ${tab.url}`);
-        continue;
-      }
-
-      const targetId = `tab_${tab.id}`;
-
-      if (this.sentTargetIds.has(targetId)) {
-        console.log(`Already sent target: ${targetId}`);
-        continue;
-      }
-
-      console.log(`Proactively sending target: ${tab.id} - ${tab.title}`);
-      this.sentTargetIds.add(targetId);
-
-      const targetInfo = {
-        targetId: targetId,
-        type: "page",
-        title: tab.title || "New Tab",
-        url: tab.url || "about:blank",
-        attached: false,
-        canAccessOpener: false,
-        browserContextId: "default"
-      };
-
-      // Send target created event
-      this.sendTargetCreatedEvent(targetInfo);
-    }
-  }
-
-  async cdpBrowserSetDownloadBehavior(params) {
-    // Just acknowledge the download behavior setting
-    console.log('Browser download behavior set:', params);
-    return {};
-  }
-
-  async cdpBrowserGetWindowForTarget(params) {
-    const { targetId } = params;
-    console.log('Getting window for target:', targetId, 'params:', JSON.stringify(params));
-
-    // If no targetId is provided, get the current active tab's window
-    let tabId;
-
-    if (targetId && targetId.startsWith('tab_')) {
-      tabId = Number.parseInt(targetId.replace('tab_', ''));
-    } else {
-      // No targetId provided - get current active tab
-      console.log('No targetId provided, getting current active tab');
-      try {
-        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (activeTab) {
-          tabId = activeTab.id;
-          console.log('Using active tab:', tabId);
-        }
-      } catch (error) {
-        console.log('Failed to get active tab:', error);
-      }
-    }
-
-    if (tabId) {
-      try {
-        // Get tab information
-        const tab = await chrome.tabs.get(tabId);
-        console.log('Found tab:', tab.id, 'in window:', tab.windowId);
-
-        // Get window information
-        const window = await chrome.windows.get(tab.windowId);
-        console.log('Window info:', JSON.stringify({
-          id: window.id,
-          left: window.left,
-          top: window.top,
-          width: window.width,
-          height: window.height
-        }));
-
-        // Return window bounds information in the exact format Playwright expects
-        const response = {
-          windowId: window.id,
-          bounds: {
-            left: window.left || 0,
-            top: window.top || 0,
-            width: window.width || 1200,
-            height: window.height || 800
-          }
-        };
-
-        console.log('Returning Browser.getWindowForTarget response:', JSON.stringify(response));
-        return response;
-      } catch (error) {
-        console.error('Failed to get window for tab:', tabId, error);
-      }
-    }
-
-    // Return default window information when no specific target or if lookup failed
-    console.log('Returning default window information');
-    const defaultResponse = {
-      windowId: 1,
-      bounds: {
-        left: 0,
-        top: 0,
-        width: 1200,
-        height: 800
-      }
-    };
-    console.log('Returning default Browser.getWindowForTarget response:', JSON.stringify(defaultResponse));
-    return defaultResponse;
-  }
-
-  async cdpTargetSetDiscoverTargets(params) {
-    const { discover } = params;
-    console.log('Target discovery set to:', discover);
-
-    if (discover) {
-      console.log('Target discovery enabled - sending existing targets');
-
-      // When target discovery is enabled, we should send targetCreated events for existing targets
-      const tabs = await chrome.tabs.query({});
-      console.log(`Found ${tabs.length} existing tabs to report`);
-
-      for (const tab of tabs) {
-        // Skip chrome:// URLs and other internal pages
-        if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
-          console.log(`Skipping internal tab: ${tab.url}`);
-          continue;
-        }
-
-        console.log(`Sending targetCreated for existing tab: ${tab.id} - ${tab.title}`);
-
-        // Send target created event for each existing tab
-        this.sendTargetCreatedEvent({
-          targetId: `tab_${tab.id}`,
-          type: "page",
-          title: tab.title || "New Tab",
-          url: tab.url || "about:blank",
-          attached: true,
-          canAccessOpener: false,
-          browserContextId: "default"
-        });
-      }
-    }
-
-    return {};
-  }
-
-  async cdpTargetGetTargets(params) {
-    // Get ALL tabs, not just current window
-    const tabs = await chrome.tabs.query({});
-
-    console.log(`Getting targets: found ${tabs.length} tabs total`);
-
-    const targets = [];
-
-    // Add browser context target first
-    targets.push({
-      targetId: "browser_context_default",
-      type: "browser",
-      title: "",
-      url: "",
-      attached: true, // Browser context should be attached
-      canAccessOpener: false,
-      browserContextId: "default"
-    });
-
-    // Add page targets for each tab
-    for (const tab of tabs) {
-      // Skip chrome:// URLs and other internal pages
-      if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
-        console.log(`Skipping internal tab: ${tab.url}`);
-        continue;
-      }
-
-      console.log(`Adding tab target: ${tab.id} - ${tab.title} - ${tab.url}`);
-      targets.push({
-        targetId: `tab_${tab.id}`,
-        type: "page",
-        title: tab.title || "New Tab",
-        url: tab.url || "about:blank",
-        attached: true, // Mark existing tabs as attached so Playwright can use them
-        canAccessOpener: false,
-        browserContextId: "default"
-      });
-    }
-
-    console.log(`Returning ${targets.length} targets total (${targets.length - 1} pages)`);
-    return { targetInfos: targets };
-  }
-
-  async cdpTargetAttachToTarget(params) {
-    const { targetId, flatten } = params;
-
-    console.log(`Attaching to target: ${targetId}, flatten: ${flatten}`);
-
-    // Use UUID-like session ID format that matches real Chrome CDP
-    const sessionId = this.generateUUID();
-    console.log(`Created session: ${sessionId}`);
-
-    return {
-      sessionId: sessionId
-    };
-  }
-
-  async cdpTargetSetAutoAttach(params) {
-    const { autoAttach, waitForDebuggerOnStart, flatten } = params;
-    console.log('Target auto-attach set:', params);
-
-    // Re-enable auto-attach but with proper session management
-    // The assertion errors were caused by session routing, not auto-attach itself
-    this.autoAttachEnabled = autoAttach;
-    this.waitForDebuggerOnStart = waitForDebuggerOnStart;
-    this.flattenAutoAttach = flatten;
-
-    // DISABLED: Auto-attach causes assertion errors in Playwright
-    console.log('DISABLED auto-attach behavior to prevent Playwright assertion errors');
-    // When auto-attach is enabled, proactively send existing targets (but only once)
-    if (false && autoAttach && !this.targetsDiscovered) {
-      console.log('Auto-attach enabled - proactively sending existing targets (first time)');
-      this.targetsDiscovered = true;
-
-      // Send target events for existing tabs
-      const tabs = await chrome.tabs.query({});
-      console.log(`Found ${tabs.length} existing tabs to report via auto-attach`);
-
-      for (const tab of tabs) {
-        // Skip chrome:// URLs and other internal pages
-        if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
-          console.log(`Skipping internal tab: ${tab.url}`);
-          continue;
-        }
-
-        const targetId = `tab_${tab.id}`;
-
-        // Skip if we've already sent this target
-        if (this.sentTargetIds.has(targetId)) {
-          console.log(`Already sent target: ${targetId}`);
-          continue;
-        }
-
-        console.log(`Auto-attach: Sending targetCreated for tab: ${tab.id} - ${tab.title}`);
-        this.sentTargetIds.add(targetId);
-
-        const targetInfo = {
-          targetId: targetId,
-          type: "page",
-          title: tab.title || "New Tab",
-          url: tab.url || "about:blank",
-          attached: false,
-          canAccessOpener: false,
-          browserContextId: "default"
-        };
-
-        // Send target created event
-        this.sendTargetCreatedEvent(targetInfo);
-
-        // If auto-attach is enabled, also send attached event
-        const sessionId = this.generateUUID();
-        const attachInfo = {
-          sessionId: sessionId,
-          targetInfo: {
-            ...targetInfo,
-            attached: true
-          },
-          waitingForDebugger: false
-        };
-        console.log('🔧 DEBUG: Sending Target.attachedToTarget with sessionId:', attachInfo.sessionId, 'waitingForDebugger:', attachInfo.waitingForDebugger);
-        this.sendTargetAttachedEvent(attachInfo);
-      }
-    } else if (autoAttach && this.targetsDiscovered) {
-      console.log('Auto-attach enabled but targets already discovered - skipping duplicate events');
-    }
-
-    return {};
-  }
-
-  async cdpTargetGetTargetInfo(params) {
-    const { targetId } = params;
-
-    // If targetId provided, get specific target info
-    if (targetId) {
-      if (targetId === "browser_context_default") {
-        return {
-          targetInfo: {
-            targetId: "browser_context_default",
-            type: "browser",
-            title: "",
-            url: "",
-            attached: false,
-            canAccessOpener: false,
-            browserContextId: "default"
-          }
-        };
-      } else if (targetId.startsWith('tab_')) {
-        const tabId = Number.parseInt(targetId.replace('tab_', ''));
-        try {
-          const tab = await chrome.tabs.get(tabId);
-          return {
-            targetInfo: {
-              targetId: targetId,
-              type: "page",
-              title: tab.title,
-              url: tab.url,
-              attached: false,
-              canAccessOpener: false,
-              browserContextId: "default"
-            }
-          };
-        } catch (error) {
-          console.error('Failed to get tab info:', error);
-        }
-      }
-    }
-
-    // Fallback to current active tab
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    return {
-      targetInfo: {
-        targetId: activeTab ? `tab_${activeTab.id}` : "tab_default",
-        type: "page",
-        title: activeTab ? activeTab.title : "BROP Tab",
-        url: activeTab ? activeTab.url : "about:blank",
-        attached: false,
-        canAccessOpener: false,
-        browserContextId: "default"
-      }
-    };
-  }
-
-  async cdpTargetCreateTarget(params) {
-    const { url, width, height, browserContextId, enableBeginFrameControl } = params;
-
-    console.log('Creating target with params:', params);
-
-    // Create a new tab
-    const newTab = await chrome.tabs.create({
-      url: url || 'about:blank',
-      active: false
-    });
-
-    console.log('Created new tab:', newTab.id);
-
-    const targetId = `tab_${newTab.id}`;
-
-    // Wait a moment for tab to be ready
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    // Send Target.targetCreated event to bridge
-    const targetInfo = {
-      targetId: targetId,
-      type: "page",
-      title: newTab.title || "New Tab",
-      url: newTab.url || url || 'about:blank',
-      attached: false,
-      canAccessOpener: false,
-      browserContextId: browserContextId || "default"
-    };
-
-    this.sendTargetCreatedEvent(targetInfo);
-
-    // Re-enable auto-attach with proper session management
-    if (this.autoAttachEnabled) {
-      console.log('Auto-attaching to new target:', targetId);
-      const sessionId = this.generateUUID();
-
-      // Send Target.attachedToTarget event - but with proper session routing
-      const attachInfo = {
-        sessionId: sessionId,
-        targetInfo: {
-          ...targetInfo,
-          attached: true
-        },
-        waitingForDebugger: false
-      };
-      console.log('🔧 DEBUG: Sending Target.attachedToTarget (createTarget) with sessionId:', attachInfo.sessionId, 'waitingForDebugger:', attachInfo.waitingForDebugger);
-      this.sendTargetAttachedEvent(attachInfo);
-    }
-
-    return {
-      targetId: targetId
-    };
-  }
-
-  sendTargetCreatedEvent(targetInfo) {
-    // Send target created event to bridge
-    if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
-      this.sendToBridge({
-        type: 'event',
-        event_type: 'target_created',
-        method: 'Target.targetCreated',
-        params: {
-          targetInfo: targetInfo
-        }
-      });
-      console.log('Sent Target.targetCreated event for:', targetInfo.targetId);
-
-      // CRITICAL: Also send Runtime.executionContextCreated event
-      // This is what Playwright needs to properly initialize pages
-      setTimeout(() => {
-        this.sendExecutionContextCreatedEvent(targetInfo.targetId);
-      }, 100); // Small delay to ensure target is ready
-    }
-  }
-
-  sendExecutionContextCreatedEvent(targetId) {
-    // Send execution context created event - CRITICAL for Playwright page initialization
-    if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
-      const contextId = Math.floor(Math.random() * 1000000); // Generate unique context ID
-
-      this.sendToBridge({
-        type: 'event',
-        event_type: 'execution_context_created',
-        method: 'Runtime.executionContextCreated',
-        params: {
-          context: {
-            id: contextId,
-            origin: 'about:blank',
-            name: '',
-            auxData: {
-              isDefault: true,
-              type: 'default',
-              frameId: 'main_frame'
-            }
-          }
-        }
-      });
-      console.log('Sent Runtime.executionContextCreated event for target:', targetId);
-    }
-  }
-
-  sendTargetAttachedEvent(attachInfo) {
-    // Send target attached event to bridge
-    if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
-      this.sendToBridge({
-        type: 'event',
-        event_type: 'target_attached',
-        method: 'Target.attachedToTarget',
-        params: attachInfo
-      });
-      console.log('Sent Target.attachedToTarget event for:', attachInfo.targetInfo.targetId);
-    }
-  }
-
-  async cdpTargetCloseTarget(params) {
-    const { targetId } = params;
-
-    // Extract tab ID from target ID
-    if (targetId.startsWith('tab_')) {
-      const tabId = Number.parseInt(targetId.replace('tab_', ''));
-      const sessionId = this.debuggerSessions.get(tabId);
-
-      console.log(`🗑️ Programmatically closing target ${targetId} (tab ${tabId})`);
-
-      try {
-        // Notify clients before closing the tab
-        if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
-          // Send Target.detachedFromTarget event if there was a session
-          if (sessionId) {
-            this.sendToBridge({
-              type: 'event',
-              event_type: 'target_detached',
-              method: 'Target.detachedFromTarget',
-              params: {
-                sessionId: sessionId,
-                targetId: targetId
-              }
-            });
-            console.log(`📡 Sent Target.detachedFromTarget for programmatic close of ${targetId}`);
-          }
-
-          // Send custom BROP event for programmatic closure
-          this.sendToBridge({
-            type: 'session_event',
-            event_type: 'target_closing',
-            tabId: tabId,
-            targetId: targetId,
-            sessionId: sessionId,
-            reason: 'programmatic_close',
-            timestamp: Date.now()
-          });
-          console.log(`📡 Sent BROP target_closing event for ${targetId}`);
-        }
-
-        // Close the tab (this will trigger handleTabRemoved automatically)
-        await chrome.tabs.remove(tabId);
-
-        // Log the programmatic closure
-        this.logCall(
-          'target_close',
-          'CDP',
-          { targetId, tabId },
-          { success: true },
-          null,
-          null
-        );
-
-        return { success: true };
-      } catch (error) {
-        console.error('Failed to close tab:', error);
-
-        // Log the failed closure
-        this.logCall(
-          'target_close',
-          'CDP',
-          { targetId, tabId },
-          null,
-          error.message,
-          null
-        );
-
-        return { success: false };
-      }
-    }
-
-    return { success: false };
-  }
-
-  async cdpRuntimeEnable(params) {
-    return {};
-  }
-
-  async cdpRuntimeAddBinding(params) {
-    const { name, executionContextId } = params;
-    console.log('Runtime binding added:', name);
-    return {};
-  }
-
-  async cdpRuntimeRunIfWaitingForDebugger(params) {
-    return {};
-  }
-
-  async cdpRuntimeSetCustomObjectFormatterEnabled(params) {
-    const { enabled } = params;
-    console.log('Custom object formatter enabled:', enabled);
-    return {};
-  }
-
-  async cdpPageEnable(params) {
-    return {};
-  }
-
-  async cdpPageAddScriptToEvaluateOnNewDocument(params) {
-    const { source, worldName } = params;
-    console.log('Script added to evaluate on new document:', { source: source?.substring(0, 100), worldName });
-    return {
-      identifier: `script_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-    };
-  }
-
-  async cdpPageRemoveScriptToEvaluateOnNewDocument(params) {
-    const { identifier } = params;
-    console.log('Script removed from new document evaluation:', identifier);
-    return {};
-  }
-
-  async cdpPageSetLifecycleEventsEnabled(params) {
-    const { enabled } = params;
-    console.log('Page lifecycle events enabled:', enabled);
-    return {};
-  }
-
-  async cdpPageGetFrameTree(params) {
-    // For a newly created page, we need to use the target's tab info
-    // Get the tab that corresponds to this CDP session
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    // If no active tab, try to get any tab for this target
-    let targetTab = activeTab;
-    if (!targetTab) {
-      const allTabs = await chrome.tabs.query({});
-      targetTab = allTabs[allTabs.length - 1]; // Use the most recently created tab
-    }
-
-    const url = targetTab?.url || "about:blank";
-    let securityOrigin;
-    try {
-      securityOrigin = url === "about:blank" ? "null" : new URL(url).origin;
-    } catch {
-      securityOrigin = "null";
-    }
-
-    const frameTree = {
-      frame: {
-        id: "main_frame",
-        loaderId: `loader_${Date.now()}`,
-        url: url,
-        domainAndRegistry: "",
-        securityOrigin: securityOrigin,
-        mimeType: "text/html",
-        adFrameType: "none"
-      },
-      childFrames: []
-    };
-
-    console.log('Returning frame tree for URL:', url);
-    return { frameTree };
-  }
-
-  async cdpNetworkEnable(params) {
-    return {};
-  }
-
-  async cdpLogEnable(params) {
-    console.log('Log domain enabled');
-    return {};
-  }
-
-  async cdpEmulationSetFocusEmulationEnabled(params) {
-    const { enabled } = params;
-    console.log('Focus emulation enabled:', enabled);
-    return {};
-  }
-
-  async cdpEmulationSetEmulatedMedia(params) {
-    const { media, features } = params;
-    console.log('Emulated media set:', { media, features });
-    return {};
-  }
-
-  async cdpPageNavigate(params, targetId) {
-    const { url } = params;
-
-    // Extract tab ID from target ID, or use active tab if no target specified
-    let tabId = this.getTabIdFromTarget(targetId);
-    if (!tabId) {
-      try {
-        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (activeTab) {
-          tabId = activeTab.id;
-          console.log(`No target ID provided for navigation, using active tab: ${tabId}`);
-        } else {
-          throw new Error(`Invalid target ID: ${targetId} and no active tab found`);
-        }
-      } catch (error) {
-        throw new Error(`Invalid target ID: ${targetId} and failed to get active tab: ${error.message}`);
-      }
-    }
-
-    await chrome.tabs.update(tabId, { url });
-
-    // Wait for navigation to complete
-    return new Promise((resolve) => {
-      const listener = (updatedTabId, changeInfo) => {
-        if (updatedTabId === tabId && changeInfo.status === 'complete') {
-          chrome.tabs.onUpdated.removeListener(listener);
-          resolve({
-            frameId: '1',
-            loaderId: `loader_${Date.now()}`
-          });
-        }
-      };
-      chrome.tabs.onUpdated.addListener(listener);
-
-      // Add timeout to prevent hanging
-      setTimeout(() => {
-        chrome.tabs.onUpdated.removeListener(listener);
-        resolve({
-          frameId: '1',
-          loaderId: `loader_${Date.now()}`
-        });
-      }, 5000);
-    });
-  }
-
-  async cdpRuntimeEvaluate(params, targetId) {
-    const { expression, returnByValue = true } = params;
-
-    // Extract tab ID from target ID, or use active tab if no target specified
-    let tabId = this.getTabIdFromTarget(targetId);
-    if (!tabId) {
-      try {
-        const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (activeTab) {
-          tabId = activeTab.id;
-          console.log(`No target ID provided, using active tab: ${tabId}`);
-        } else {
-          throw new Error(`Invalid target ID: ${targetId} and no active tab found`);
-        }
-      } catch (error) {
-        throw new Error(`Invalid target ID: ${targetId} and failed to get active tab: ${error.message}`);
-      }
-    }
-
-    try {
-      // Check if we can access this tab
-      const tab = await chrome.tabs.get(tabId);
-      if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
-        throw new Error('Cannot access a chrome:// URL');
-      }
-
-      // Ensure expression is a string and serializable
-      const expressionString = typeof expression === 'string' ? expression : String(expression);
-
-      // Use Chrome's executeScript API with CSP-compliant approach
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tabId },
-        func: (code) => {
-          try {
-            // CSP-compliant evaluation - only support safe operations
-            if (code === 'document.title') return { success: true, result: document.title };
-            if (code === 'window.location.href') return { success: true, result: window.location.href };
-            if (code === 'document.readyState') return { success: true, result: document.readyState };
-            if (code.startsWith('console.log(')) {
-              const msg = code.match(/console\.log\((.+)\)/)?.[1]?.replace(/["']/g, '') || 'unknown';
-              console.log('BROP CDP:', msg);
-              return { success: true, result: `Logged: ${msg}` };
-            }
-            // For other expressions, return safe response
-            return { success: true, result: `CSP-safe evaluation: ${code}` };
-          } catch (error) {
-            return { success: false, error: error.message };
-          }
-        },
-        args: [expressionString]
-      });
-
-      const result = results[0]?.result;
-      if (!result?.success) {
-        throw new Error(result?.error || 'Evaluation failed');
-      }
-
-      return {
-        result: {
-          type: typeof result.result,
-          value: result.result
-        }
-      };
-    } catch (error) {
-      // If executeScript fails due to CSP, try a simpler approach
-      if (error.message.includes('Content Security Policy')) {
-        console.log('CSP blocked executeScript, trying alternative approach');
-
-        // For CSP-restricted sites, we can still get basic page info
-        try {
-          const results = await chrome.scripting.executeScript({
-            target: { tabId: tabId },
-            func: () => {
-              // These don't require eval and work with most CSP policies
-              if (window.location && document) {
-                return {
-                  success: true,
-                  result: document.title || window.location.href || 'CSP-restricted page'
-                };
-              }
-              return { success: false, error: 'Document not accessible' };
-            }
-          });
-
-          const result = results[0]?.result;
-          if (result?.success) {
-            return {
-              result: {
-                type: 'string',
-                value: result.result
-              }
-            };
-          }
-        } catch (altError) {
-          console.log('Alternative approach also failed:', altError);
-        }
-      }
-
-      throw error;
-    }
-  }
-
-  async cdpPageCaptureScreenshot(params) {
-    const { format = 'png', quality = 90, fromSurface = true } = params;
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    if (!activeTab) {
-      throw new Error('No active tab found');
-    }
-
-    const dataUrl = await chrome.tabs.captureVisibleTab(activeTab.windowId, {
-      format: format === 'jpeg' ? 'jpeg' : 'png',
-      quality: quality
-    });
-
-    // Remove data URL prefix to get just the base64 data
-    const base64Data = dataUrl.split(',')[1];
-
-    return {
-      data: base64Data
-    };
-  }
-
-  // BROP Method Implementations (same as before)
+  // BROP Method Implementations
   async handleGetConsoleLogs(params) {
-    // Try to get active tab first, then fall back to any accessible tab
+    const { tabId } = params;
     let targetTab;
     
+    if (!tabId) {
+      throw new Error('tabId is required. Use list_tabs to see available tabs or create_tab to create a new one.');
+    }
+    
+    // Get the specified tab
     try {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      targetTab = activeTab;
+      targetTab = await chrome.tabs.get(tabId);
     } catch (error) {
-      console.log('🔧 DEBUG: No active tab in current window, searching all windows...');
+      throw new Error(`Tab ${tabId} not found: ${error.message}`);
     }
     
-    // If no active tab found, get any accessible tab
-    if (!targetTab) {
-      const allTabs = await chrome.tabs.query({});
-      console.log(`🔧 DEBUG: Found ${allTabs.length} total tabs`);
-      
-      // Prioritize GitHub tabs, then any non-chrome:// tab
-      targetTab = allTabs.find(tab => 
-        tab.url && tab.url.includes('github.com')
-      ) || allTabs.find(tab => 
-        tab.url && 
-        !tab.url.startsWith('chrome://') && 
-        !tab.url.startsWith('chrome-extension://') &&
-        !tab.url.startsWith('edge://') &&
-        !tab.url.startsWith('about:')
-      );
-    }
-    
-    if (!targetTab) {
-      throw new Error('No accessible tabs found (all tabs are chrome:// or extension pages)');
+    // Check if tab is accessible
+    if (targetTab.url.startsWith('chrome://') || targetTab.url.startsWith('chrome-extension://')) {
+      throw new Error(`Cannot access chrome:// URL: ${targetTab.url}. Use a regular webpage tab.`);
     }
 
     console.log(`🔧 DEBUG handleGetConsoleLogs: Using tab ${targetTab.id} - "${targetTab.title}" - ${targetTab.url}`);
@@ -1877,7 +446,6 @@ class BROPBridgeClient {
     };
   }
 
-
   async getRuntimeConsoleLogs(tabId, limit = 100) {
     console.log(`🔧 DEBUG getRuntimeConsoleLogs: Using runtime messaging for tab ${tabId}`);
     
@@ -1887,31 +455,6 @@ class BROPBridgeClient {
     }
     
     try {
-      // Method 1: Direct access to stored console messages (your runtime messaging approach)
-      console.log(`🔧 DEBUG: Implementing chrome.runtime.sendMessage approach directly...`);
-      if (this.globalConsoleMessages && this.globalConsoleMessages.has(tabId)) {
-        const tabConsoleMessages = this.globalConsoleMessages.get(tabId) || [];
-        const recentMessages = tabConsoleMessages.slice(-limit);
-        console.log(`🔧 DEBUG: Runtime messaging approach: Found ${recentMessages.length} stored console messages for tab ${tabId}`);
-        if (recentMessages.length > 0) {
-          return recentMessages.map(msg => {
-            // Fix message format if it's an object with text property
-            let fixedMessage = msg.message;
-            if (typeof msg.message === 'object' && msg.message.text) {
-              fixedMessage = msg.message.text;
-            } else if (typeof msg.message === 'object') {
-              fixedMessage = JSON.stringify(msg.message);
-            }
-            
-            return {
-              ...msg,
-              message: fixedMessage,
-              source: 'runtime_messaging_direct'
-            };
-          });
-        }
-      }
-
       // Method 2: Try chrome.tabs.sendMessage to content script (if available)
       console.log(`🔧 DEBUG: Trying chrome.tabs.sendMessage to content script for tab ${tabId}...`);
       try {
@@ -2017,33 +560,23 @@ class BROPBridgeClient {
   }
 
   async handleExecuteConsole(params) {
-    const { code } = params;
-    
-    // Use same robust tab detection as handleGetConsoleLogs
+    const { code, tabId } = params;
     let targetTab;
     
+    if (!tabId) {
+      throw new Error('tabId is required. Use list_tabs to see available tabs or create_tab to create a new one.');
+    }
+    
+    // Get the specified tab
     try {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      targetTab = activeTab;
+      targetTab = await chrome.tabs.get(tabId);
     } catch (error) {
-      console.log('🔧 DEBUG: No active tab in current window, searching all windows...');
+      throw new Error(`Tab ${tabId} not found: ${error.message}`);
     }
     
-    if (!targetTab) {
-      const allTabs = await chrome.tabs.query({});
-      targetTab = allTabs.find(tab => 
-        tab.url && tab.url.includes('github.com')
-      ) || allTabs.find(tab => 
-        tab.url && 
-        !tab.url.startsWith('chrome://') && 
-        !tab.url.startsWith('chrome-extension://') &&
-        !tab.url.startsWith('edge://') &&
-        !tab.url.startsWith('about:')
-      );
-    }
-    
-    if (!targetTab) {
-      throw new Error('No accessible tabs found');
+    // Check if tab is accessible
+    if (targetTab.url.startsWith('chrome://') || targetTab.url.startsWith('chrome-extension://')) {
+      throw new Error(`Cannot access chrome:// URL: ${targetTab.url}. Use a regular webpage tab.`);
     }
 
     console.log(`🔧 DEBUG handleExecuteConsole: Using tab ${targetTab.id} - "${targetTab.title}" - ${targetTab.url}`);
@@ -2084,53 +617,58 @@ class BROPBridgeClient {
   }
 
   async handleGetScreenshot(params) {
-    const { full_page = false, format = 'png' } = params;
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    if (!activeTab) {
-      throw new Error('No active tab found');
+    const { full_page = false, format = 'png', tabId } = params;
+    
+    if (!tabId) {
+      throw new Error('tabId is required. Use list_tabs to see available tabs or create_tab to create a new one.');
+    }
+    
+    // Get the specified tab
+    let targetTab;
+    try {
+      targetTab = await chrome.tabs.get(tabId);
+    } catch (error) {
+      throw new Error(`Tab ${tabId} not found: ${error.message}`);
     }
 
-    const dataUrl = await chrome.tabs.captureVisibleTab(activeTab.windowId, {
+    // Make sure the tab is active (visible) for screenshot
+    await chrome.tabs.update(tabId, { active: true });
+    await chrome.windows.update(targetTab.windowId, { focused: true });
+    
+    // Wait a moment for tab to become visible
+    await new Promise(resolve => setTimeout(resolve, 200));
+
+    const dataUrl = await chrome.tabs.captureVisibleTab(targetTab.windowId, {
       format: format === 'jpeg' ? 'jpeg' : 'png'
     });
 
     return {
       image_data: dataUrl.split(',')[1],
-      format: format
+      format: format,
+      tabId: tabId,
+      tab_title: targetTab.title,
+      tab_url: targetTab.url
     };
   }
 
   async handleGetPageContent(params) {
-    // Try to get active tab first, then fall back to any accessible tab
+    const { tabId } = params;
     let targetTab;
     
+    if (!tabId) {
+      throw new Error('tabId is required. Use list_tabs to see available tabs or create_tab to create a new one.');
+    }
+    
+    // Get the specified tab
     try {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      targetTab = activeTab;
+      targetTab = await chrome.tabs.get(tabId);
     } catch (error) {
-      console.log('🔧 DEBUG: No active tab in current window, searching all windows...');
+      throw new Error(`Tab ${tabId} not found: ${error.message}`);
     }
     
-    // If no active tab found, get any accessible tab
-    if (!targetTab) {
-      const allTabs = await chrome.tabs.query({});
-      console.log(`🔧 DEBUG: Found ${allTabs.length} total tabs`);
-      
-      // Prioritize GitHub tabs, then any non-chrome:// tab
-      targetTab = allTabs.find(tab => 
-        tab.url && tab.url.includes('github.com')
-      ) || allTabs.find(tab => 
-        tab.url && 
-        !tab.url.startsWith('chrome://') && 
-        !tab.url.startsWith('chrome-extension://') &&
-        !tab.url.startsWith('edge://') &&
-        !tab.url.startsWith('about:')
-      );
-    }
-    
-    if (!targetTab) {
-      throw new Error('No accessible tabs found (all tabs are chrome:// or extension pages)');
+    // Check if tab is accessible
+    if (targetTab.url.startsWith('chrome://') || targetTab.url.startsWith('chrome-extension://')) {
+      throw new Error(`Cannot access chrome:// URL: ${targetTab.url}. Use a regular webpage tab.`);
     }
 
     console.log(`🔧 DEBUG handleGetPageContent: Using tab ${targetTab.id} - "${targetTab.title}" - ${targetTab.url}`);
@@ -2149,125 +687,57 @@ class BROPBridgeClient {
   }
 
   async handleNavigate(params) {
-    const { url } = params;
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    if (!activeTab) {
-      throw new Error('No active tab found');
+    const { url, tabId, create_new_tab = false, close_tab = false } = params;
+    
+    let targetTab;
+    
+    if (close_tab && tabId) {
+      // Close the specified tab
+      await chrome.tabs.remove(tabId);
+      return { success: true, action: 'tab_closed', tabId: tabId };
     }
-
-    await chrome.tabs.update(activeTab.id, { url });
-    return { success: true };
-  }
-
-  // Browser context management
-  async cdpBrowserCreateBrowserContext(params) {
-    const { disposeOnDetach, proxyServer, proxyBypassList } = params;
-    // Generate a unique browser context ID
-    const contextId = `context_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    console.log('Creating browser context:', contextId);
-    return { browserContextId: contextId };
-  }
-
-  async cdpBrowserDisposeBrowserContext(params) {
-    const { browserContextId } = params;
-    console.log('Disposing browser context:', browserContextId);
-    return {};
-  }
-
-  async cdpBrowserGetBrowserContexts(params) {
-    // Return a default browser context
-    return {
-      browserContextIds: ["default"]
-    };
-  }
-
-  async cdpTargetActivateTarget(params) {
-    const { targetId } = params;
-
-    // Extract tab ID from target ID and activate the tab
-    if (targetId.startsWith('tab_')) {
-      const tabId = Number.parseInt(targetId.replace('tab_', ''));
+    
+    if (create_new_tab) {
+      // Create a new tab
+      const newTab = await chrome.tabs.create({ url: url || 'about:blank' });
+      return { 
+        success: true, 
+        action: 'tab_created',
+        tabId: newTab.id, 
+        url: newTab.url,
+        title: newTab.title 
+      };
+    }
+    
+    if (tabId) {
+      // Use specified tab
       try {
-        await chrome.tabs.update(tabId, { active: true });
-        return {};
+        targetTab = await chrome.tabs.get(tabId);
       } catch (error) {
-        console.error('Failed to activate tab:', error);
-        return {};
+        throw new Error(`Tab ${tabId} not found: ${error.message}`);
       }
+    } else {
+      // Use active tab
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!activeTab) {
+        throw new Error('No active tab found');
+      }
+      targetTab = activeTab;
     }
 
-    return {};
-  }
-
-  async cdpTargetDetachFromTarget(params) {
-    const { sessionId, targetId } = params;
-    console.log('Detaching from target:', { sessionId, targetId });
-    return {};
-  }
-
-  async cdpTargetSendMessageToTarget(params) {
-    const { message, sessionId, targetId } = params;
-    console.log('Send message to target:', { message: message?.substring(0, 100), sessionId, targetId });
-
-    // For now, just acknowledge the message was sent
-    // In a full implementation, this would route the message to the appropriate target
-    return {};
-  }
-
-  async cdpTargetReceivedMessageFromTarget(params) {
-    console.log('Received message from target:', params);
-    return {};
-  }
-
-  async cdpTargetTargetCrashed(params) {
-    console.log('Target crashed:', params);
-    return {};
-  }
-
-  async cdpTargetTargetDestroyed(params) {
-    console.log('Target destroyed:', params);
-    return {};
-  }
-
-  async cdpBrowserClose(params) {
-    console.log('Browser close requested');
-    return {};
-  }
-
-  async cdpBrowserCrash(params) {
-    console.log('Browser crash requested');
-    return {};
-  }
-
-  async cdpTargetSetRemoteLocations(params) {
-    const { locations } = params;
-    console.log('Set remote locations:', locations);
-    return {};
-  }
-
-  async cdpTargetCreateBrowserContext(params) {
-    const { disposeOnDetach, proxyServer, proxyBypassList } = params;
-
-    // Generate a unique browser context ID  
-    const contextId = `context_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    console.log('Creating target browser context:', contextId);
-
-    // This is the same as Browser.createBrowserContext but under Target domain
-    return { browserContextId: contextId };
-  }
-
-  async cdpTargetDisposeBrowserContext(params) {
-    const { browserContextId } = params;
-    console.log('Disposing target browser context:', browserContextId);
-    // This is the same as Browser.disposeBrowserContext but under Target domain
-    return {};
-  }
-
-  async cdpTargetSetAttachToFrames(params) {
-    const { value } = params;
-    console.log('Set attach to frames:', value);
-    return {};
+    // Navigate the target tab
+    await chrome.tabs.update(targetTab.id, { url });
+    
+    // Get updated tab info
+    const updatedTab = await chrome.tabs.get(targetTab.id);
+    
+    return { 
+      success: true, 
+      action: 'navigated',
+      tabId: updatedTab.id,
+      url: updatedTab.url,
+      title: updatedTab.title
+    };
   }
 
   // Additional BROP methods would be implemented here...
@@ -2419,6 +889,132 @@ class BROPBridgeClient {
     }
   }
 
+  // Tab Management Methods
+  async handleCreateTab(params) {
+    const { url = 'about:blank', active = true } = params;
+    
+    try {
+      const newTab = await chrome.tabs.create({ 
+        url: url,
+        active: active
+      });
+      
+      // Wait a moment for tab to initialize
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Get updated tab info
+      const tabInfo = await chrome.tabs.get(newTab.id);
+      
+      console.log(`✅ Created new tab: ${newTab.id} - "${tabInfo.title}" - ${tabInfo.url}`);
+      
+      return {
+        success: true,
+        tabId: tabInfo.id,
+        url: tabInfo.url,
+        title: tabInfo.title,
+        active: tabInfo.active,
+        status: tabInfo.status
+      };
+    } catch (error) {
+      console.error('Failed to create tab:', error);
+      throw new Error(`Tab creation failed: ${error.message}`);
+    }
+  }
+
+  async handleCloseTab(params) {
+    const { tabId } = params;
+    
+    if (!tabId) {
+      throw new Error('tabId is required for close_tab');
+    }
+    
+    try {
+      await chrome.tabs.remove(tabId);
+      console.log(`✅ Closed tab: ${tabId}`);
+      
+      return {
+        success: true,
+        tabId: tabId,
+        action: 'closed'
+      };
+    } catch (error) {
+      console.error(`Failed to close tab ${tabId}:`, error);
+      throw new Error(`Tab close failed: ${error.message}`);
+    }
+  }
+
+  async handleListTabs(params) {
+    const { include_content = false } = params;
+    
+    try {
+      const allTabs = await chrome.tabs.query({});
+      
+      const tabList = allTabs.map(tab => ({
+        tabId: tab.id,
+        url: tab.url,
+        title: tab.title,
+        active: tab.active,
+        status: tab.status,
+        windowId: tab.windowId,
+        index: tab.index,
+        pinned: tab.pinned,
+        accessible: !tab.url.startsWith('chrome://') && 
+                   !tab.url.startsWith('chrome-extension://') &&
+                   !tab.url.startsWith('edge://') &&
+                   !tab.url.startsWith('about:') ||
+                   tab.url === 'about:blank'
+      }));
+      
+      // Get active tab
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      
+      console.log(`📋 Listed ${tabList.length} tabs (active: ${activeTab?.id || 'none'})`);
+      
+      return {
+        success: true,
+        tabs: tabList,
+        activeTabId: activeTab?.id || null,
+        totalTabs: tabList.length,
+        accessibleTabs: tabList.filter(tab => tab.accessible).length
+      };
+    } catch (error) {
+      console.error('Failed to list tabs:', error);
+      throw new Error(`Tab listing failed: ${error.message}`);
+    }
+  }
+
+  async handleActivateTab(params) {
+    const { tabId } = params;
+    
+    if (!tabId) {
+      throw new Error('tabId is required for activate_tab');
+    }
+    
+    try {
+      // Get tab info first
+      const tab = await chrome.tabs.get(tabId);
+      
+      // Activate the tab
+      await chrome.tabs.update(tabId, { active: true });
+      
+      // Also focus the window containing the tab
+      await chrome.windows.update(tab.windowId, { focused: true });
+      
+      console.log(`✅ Activated tab: ${tabId} - "${tab.title}"`);
+      
+      return {
+        success: true,
+        tabId: tabId,
+        url: tab.url,
+        title: tab.title,
+        action: 'activated'
+      };
+    } catch (error) {
+      console.error(`Failed to activate tab ${tabId}:`, error);
+      throw new Error(`Tab activation failed: ${error.message}`);
+    }
+  }
+
   async handleGetExtensionErrors(params) {
     const limit = params?.limit || 50;
     const errors = this.extensionErrors.slice(0, limit);
@@ -2474,93 +1070,9 @@ class BROPBridgeClient {
         }
       }
 
-      // Method 3: Check for specific Chrome extension error patterns
-      // We'll need to capture these through other means since Chrome doesn't expose them directly
-
-      // Method 4: Check debugger attachment errors
-      const debuggerErrors = [];
-      for (const tabId of this.debuggerAttached) {
-        try {
-          // Try to query the tab to see if it still exists
-          const tab = await chrome.tabs.get(tabId);
-          if (!tab) {
-            debuggerErrors.push({
-              type: 'Debugger Tab Error',
-              message: `Tab ${tabId} no longer exists but debugger still attached`,
-              timestamp: Date.now(),
-              source: 'debugger_tab_check',
-              tabId: tabId
-            });
-          }
-        } catch (error) {
-          debuggerErrors.push({
-            type: 'Debugger Tab Error',
-            message: `Failed to access tab ${tabId}: ${error.message}`,
-            timestamp: Date.now(),
-            source: 'debugger_tab_check',
-            tabId: tabId
-          });
-        }
-      }
-
-      errors.push(...debuggerErrors);
-
-      // Method 5: Check for invalid debugger sessions
-      for (const [tabId, session] of this.debuggerSessions) {
-        try {
-          const tab = await chrome.tabs.get(tabId);
-          if (!tab) {
-            errors.push({
-              type: 'Debugger Session Error',
-              message: `Debugger session exists for non-existent tab ${tabId}`,
-              timestamp: Date.now(),
-              source: 'debugger_session_check',
-              tabId: tabId
-            });
-          }
-        } catch (error) {
-          errors.push({
-            type: 'Debugger Session Error',
-            message: `Invalid debugger session for tab ${tabId}: ${error.message}`,
-            timestamp: Date.now(),
-            source: 'debugger_session_check',
-            tabId: tabId
-          });
-        }
-      }
-
-      // Method 6: Get all current tabs and check for inconsistencies
-      try {
-        const allTabs = await chrome.tabs.query({});
-        const existingTabIds = new Set(allTabs.map(tab => tab.id));
-
-        // Check for debugger attachments to non-existent tabs
-        for (const attachedTabId of this.debuggerAttached) {
-          if (!existingTabIds.has(attachedTabId)) {
-            errors.push({
-              type: 'Stale Debugger Attachment',
-              message: `Debugger attached to non-existent tab ${attachedTabId}`,
-              timestamp: Date.now(),
-              source: 'tab_consistency_check',
-              tabId: attachedTabId
-            });
-          }
-        }
-
-      } catch (error) {
-        errors.push({
-          type: 'Tab Query Error',
-          message: `Failed to query tabs: ${error.message}`,
-          timestamp: Date.now(),
-          source: 'chrome.tabs.query'
-        });
-      }
-
       return {
         chrome_errors: errors,
         total_chrome_errors: errors.length,
-        debugger_attached_tabs: Array.from(this.debuggerAttached),
-        debugger_sessions: Array.from(this.debuggerSessions.keys()),
         note: 'Chrome Extension API does not expose console errors directly. These are detected issues based on extension state.',
         limitation: 'To see actual Chrome extension console errors, check chrome://extensions/ > Developer mode > Errors button for this extension'
       };
@@ -2667,11 +1179,6 @@ class BROPBridgeClient {
     };
   }
 
-  async cdpDOMGetDocument(params) { /* Implementation */ }
-  async cdpDOMQuerySelector(params) { /* Implementation */ }
-  async cdpInputDispatchMouseEvent(params) { /* Implementation */ }
-  async cdpInputInsertText(params) { /* Implementation */ }
-
   logCall(method, type, params, result, error, duration) {
     // Fix undefined/null method names
     const safeMethod = method || 'unknown_method';
@@ -2723,23 +1230,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       lastConnectionTime: bropBridgeClient.lastConnectionTime,
       bridgeUrl: bropBridgeClient.bridgeUrl,
       totalLogs: bropBridgeClient.callLogs.length,
-      activeSessions: bropBridgeClient.isConnected ? 1 : 0,
-      debuggerAttached: bropBridgeClient.debuggerAttached.size > 0,
-      controlledTabs: bropBridgeClient.debuggerAttached.size,
-      debuggerSessions: Array.from(bropBridgeClient.debuggerAttached)
+      activeSessions: bropBridgeClient.isConnected ? 1 : 0
     });
   } else if (messageType === 'SET_ENABLED') {
     bropBridgeClient.enabled = message.enabled;
-
-    // Attach or detach debuggers based on enabled state
-    if (message.enabled && bropBridgeClient.isConnected) {
-      // Enable service - attach debuggers to show "debugging this browser"
-      bropBridgeClient.attachDebuggerToAllTabs();
-    } else if (!message.enabled) {
-      // Disable service - detach debuggers to remove "debugging this browser"
-      bropBridgeClient.detachDebuggerFromAllTabs();
-    }
-
     bropBridgeClient.saveSettings();
     sendResponse({ success: true });
   } else if (messageType === 'GET_LOGS') {
@@ -2748,18 +1242,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     console.log(`🔧 DEBUG: Received GET_LOGS runtime message for tab ${tabId}`);
     
-    if (tabId && bropBridgeClient.globalConsoleMessages && bropBridgeClient.globalConsoleMessages.has(tabId)) {
-      // Return console messages for specific tab
-      const tabConsoleMessages = bropBridgeClient.globalConsoleMessages.get(tabId) || [];
-      const recentMessages = tabConsoleMessages.slice(-limit);
-      console.log(`🔧 DEBUG: Returning ${recentMessages.length} console messages for tab ${tabId}`);
-      sendResponse({ 
-        success: true,
-        logs: recentMessages,
-        source: 'runtime_messaging_console',
-        tabId: tabId
-      });
-    } else {
+    {
       // Fallback to extension call logs  
       const logs = bropBridgeClient.callLogs.slice(-limit);
       console.log(`🔧 DEBUG: No console messages for tab ${tabId}, returning ${logs.length} extension logs`);
