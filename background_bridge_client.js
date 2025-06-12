@@ -388,12 +388,24 @@ class BROPBridgeClient {
       
       const consoleMessages = this.globalConsoleMessages.get(tabId);
       const args = params.args || [];
-      const message = args.map(arg => {
-        if (arg.type === 'string') return arg.value;
-        if (arg.type === 'number') return String(arg.value);
-        if (arg.type === 'object') return arg.description || '[Object]';
-        return String(arg.value || arg.description || arg);
-      }).join(' ');
+      
+      // Extract message text from console API args
+      let message = '';
+      if (args.length > 0) {
+        message = args.map(arg => {
+          if (arg.type === 'string') return arg.value;
+          if (arg.type === 'number') return String(arg.value);
+          if (arg.type === 'object') return arg.description || '[Object]';
+          // Handle nested objects that might have text property
+          if (typeof arg === 'object' && arg.text) return arg.text;
+          return String(arg.value || arg.description || arg);
+        }).join(' ');
+      }
+      
+      // Also check for text in the params directly (some console events have it there)
+      if (!message && params.text) {
+        message = params.text;
+      }
       
       consoleMessages.push({
         level: params.type || 'log',
@@ -401,7 +413,8 @@ class BROPBridgeClient {
         timestamp: params.timestamp || Date.now(),
         source: 'runtime_console_api',
         executionContextId: params.executionContextId,
-        stackTrace: params.stackTrace
+        stackTrace: params.stackTrace,
+        rawArgs: args // Keep raw args for debugging
       });
       
       // Keep only recent messages (max 1000 per tab)
@@ -409,7 +422,7 @@ class BROPBridgeClient {
         consoleMessages.splice(0, consoleMessages.length - 1000);
       }
       
-      console.log(`🔧 DEBUG: Stored runtime console message. Tab ${tabId} now has ${consoleMessages.length} messages`);
+      console.log(`🔧 DEBUG: Stored runtime console message: "${message}". Tab ${tabId} now has ${consoleMessages.length} messages`);
     }
     
     // Forward debugger events to bridge if needed
@@ -925,9 +938,27 @@ class BROPBridgeClient {
       hasCommand: !!command,
       hasMethod: !!method,
       commandType: commandType,
+      commandTypeType: typeof commandType,
       format: command ? 'new format (command.type)' : 'legacy format (method)',
       fullMessage: JSON.stringify(message).substring(0, 200)
     });
+    
+    // Fix undefined commandType
+    if (!commandType) {
+      console.error('🔧 ERROR: commandType is undefined!', {
+        message: message,
+        command: command,
+        method: method
+      });
+      
+      this.sendToBridge({
+        type: 'response',
+        id: id,
+        success: false,
+        error: 'Invalid command: missing method or command.type'
+      });
+      return;
+    }
 
     // Check if service is enabled
     if (!this.enabled) {
@@ -1826,224 +1857,26 @@ class BROPBridgeClient {
 
     console.log(`🔧 DEBUG handleGetConsoleLogs: Using tab ${targetTab.id} - "${targetTab.title}" - ${targetTab.url}`);
 
-    // Use Chrome DevTools Protocol to get console logs directly
-    try {
-      // Use the existing getPageConsoleLogs method with Chrome DevTools Protocol
-      const logs = await this.getPageConsoleLogs(targetTab.id, params.limit || 100);
-      
-      // Filter by level if specified
-      let filteredLogs = logs;
-      if (params.level) {
-        filteredLogs = logs.filter(log => log.level === params.level);
-      }
-
-      return {
-        logs: filteredLogs,
-        source: 'page_console_cdp',
-        tab_title: targetTab.title,
-        tab_url: targetTab.url,
-        timestamp: Date.now(),
-        total_captured: filteredLogs.length,
-        method: 'chrome_devtools_protocol'
-      };
-    } catch (error) {
-      console.error('CDP console logs failed, falling back to extension logs:', error);
-      
-      // Fall back to extension background console logs
-      const extensionLogs = this.getStoredConsoleLogs(params.limit || 100);
-      return {
-        logs: extensionLogs,
-        source: 'extension_background',
-        tab_title: targetTab.title,
-        tab_url: targetTab.url,
-        timestamp: Date.now(),
-        total_captured: extensionLogs.length,
-        fallback_reason: error.message,
-        method: 'extension_fallback'
-      };
-    }
-  }
-
-  async getPageConsoleLogs(tabId, limit = 100) {
-    console.log(`🔧 DEBUG getPageConsoleLogs: Starting CDP console capture for tab ${tabId}`);
+    // Use runtime messaging approach (your suggested method) as the primary and only method
+    const logs = await this.getRuntimeConsoleLogs(targetTab.id, params.limit || 100);
     
-    try {
-      // Ensure debugger is attached to this tab
-      const isAttached = await this.attachDebuggerToTab(tabId);
-      if (!isAttached) {
-        throw new Error(`Failed to attach debugger to tab ${tabId}`);
-      }
-
-      // Get the debuggee object for this tab
-      const debuggee = { tabId: tabId };
-      
-      // Enable Console domain to capture console messages
-      await chrome.debugger.sendCommand(debuggee, "Console.enable", {});
-      console.log(`🔧 DEBUG: Console domain enabled for tab ${tabId}`);
-
-      // Enable Console domain to capture console API calls
-      await chrome.debugger.sendCommand(debuggee, "Console.enable", {});
-      
-      // Set up a console event listener to capture real-time messages
-      const consoleMessages = [];
-      const originalHandler = this.handleDebuggerEvent;
-      
-      // Temporarily override debugger event handler to capture console messages
-      this.handleDebuggerEvent = (source, method, params) => {
-        if (source.tabId === tabId && method === 'Console.messageAdded') {
-          consoleMessages.push({
-            level: params.level || 'log',
-            message: params.text || params.message || 'Unknown message',
-            timestamp: params.timestamp || Date.now(),
-            source: 'console_api_realtime',
-            url: params.url || 'unknown'
-          });
-        }
-        // Call original handler
-        originalHandler.call(this, source, method, params);
-      };
-
-      // Get existing console messages via Runtime.evaluate
-      const result = await chrome.debugger.sendCommand(debuggee, "Runtime.evaluate", {
-        expression: `
-          (function() {
-            // Try to capture console history and set up live capture
-            const capturedLogs = [];
-            
-            // Method 1: Check if console buffer exists
-            if (window.console && window.console._buffer) {
-              capturedLogs.push(...window.console._buffer.slice(-${limit}));
-            }
-            
-            // Method 2: Check for our injected console logs
-            if (window.BROP_CONSOLE_LOGS) {
-              capturedLogs.push(...window.BROP_CONSOLE_LOGS.slice(-${limit}));
-            }
-            
-            // Method 3: Inject console interceptor for future logs
-            if (!window.BROP_CONSOLE_LOGS) {
-              window.BROP_CONSOLE_LOGS = [];
-              const originalLog = console.log;
-              const originalWarn = console.warn;
-              const originalError = console.error;
-              const originalInfo = console.info;
-              
-              console.log = function(...args) {
-                window.BROP_CONSOLE_LOGS.push({
-                  level: 'log',
-                  message: args.map(a => String(a)).join(' '),
-                  timestamp: Date.now(),
-                  source: 'intercepted_console'
-                });
-                return originalLog.apply(console, args);
-              };
-              
-              console.warn = function(...args) {
-                window.BROP_CONSOLE_LOGS.push({
-                  level: 'warn',
-                  message: args.map(a => String(a)).join(' '),
-                  timestamp: Date.now(),
-                  source: 'intercepted_console'
-                });
-                return originalWarn.apply(console, args);
-              };
-              
-              console.error = function(...args) {
-                window.BROP_CONSOLE_LOGS.push({
-                  level: 'error',
-                  message: args.map(a => String(a)).join(' '),
-                  timestamp: Date.now(),
-                  source: 'intercepted_console'
-                });
-                return originalError.apply(console, args);
-              };
-              
-              console.info = function(...args) {
-                window.BROP_CONSOLE_LOGS.push({
-                  level: 'info',
-                  message: args.map(a => String(a)).join(' '),
-                  timestamp: Date.now(),
-                  source: 'intercepted_console'
-                });
-                return originalInfo.apply(console, args);
-              };
-            }
-            
-            // Return any captured logs or a test message
-            if (capturedLogs.length > 0) {
-              return capturedLogs;
-            }
-            
-            return [{
-              level: 'info',
-              message: 'Console interceptor initialized - ready to capture logs',
-              timestamp: Date.now(),
-              source: 'cdp_console_setup'
-            }];
-          })()
-        `,
-        returnByValue: true
-      });
-
-      // Wait a moment for any immediate console messages
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      // Check for any intercepted logs after a brief delay
-      const interceptedResult = await chrome.debugger.sendCommand(debuggee, "Runtime.evaluate", {
-        expression: `window.BROP_CONSOLE_LOGS || []`,
-        returnByValue: true
-      });
-      
-      // Restore original handler
-      this.handleDebuggerEvent = originalHandler;
-
-      console.log(`🔧 DEBUG: CDP evaluation result:`, result);
-      console.log(`🔧 DEBUG: Intercepted result:`, interceptedResult);
-
-      // Combine all captured logs
-      const allLogs = [];
-      
-      // Add initial setup logs
-      const setupLogs = result?.result?.value || [];
-      allLogs.push(...setupLogs);
-      
-      // Add intercepted logs
-      const interceptedLogs = interceptedResult?.result?.value || [];
-      allLogs.push(...interceptedLogs);
-      
-      // Add any real-time console messages
-      allLogs.push(...consoleMessages);
-      
-      console.log(`🔧 DEBUG: Total logs collected: ${allLogs.length}`);
-
-      // Convert to standard log format and remove duplicates
-      const standardLogs = allLogs.map(log => ({
-        level: log.level || 'log',
-        message: log.text || log.message || String(log),
-        timestamp: log.timestamp || Date.now(),
-        source: log.source || 'page_console_cdp'
-      })).filter((log, index, array) => {
-        // Remove duplicate messages (keep first occurrence)
-        return array.findIndex(l => l.message === log.message && l.timestamp === log.timestamp) === index;
-      });
-
-      // If we still have no meaningful logs, try Runtime messaging approach
-      if (standardLogs.length === 0 || standardLogs.every(log => log.message.includes('Console interceptor initialized'))) {
-        console.log(`🔧 DEBUG: No meaningful logs from CDP, trying runtime messaging approach...`);
-        return await this.getRuntimeConsoleLogs(tabId, limit);
-      }
-
-      console.log(`🔧 DEBUG: Successfully captured ${standardLogs.length} console logs via CDP`);
-      return standardLogs.slice(-limit); // Limit the results
-
-    } catch (error) {
-      console.error(`🔧 DEBUG: CDP console capture failed:`, error);
-      
-      // Fall back to runtime messaging approach
-      console.log(`🔧 DEBUG: Falling back to runtime messaging approach...`);
-      return await this.getRuntimeConsoleLogs(tabId, limit);
+    // Filter by level if specified
+    let filteredLogs = logs;
+    if (params.level) {
+      filteredLogs = logs.filter(log => log.level === params.level);
     }
+
+    return {
+      logs: filteredLogs,
+      source: 'runtime_messaging_primary',
+      tab_title: targetTab.title,
+      tab_url: targetTab.url,
+      timestamp: Date.now(),
+      total_captured: filteredLogs.length,
+      method: 'runtime_messaging_only'
+    };
   }
+
 
   async getRuntimeConsoleLogs(tabId, limit = 100) {
     console.log(`🔧 DEBUG getRuntimeConsoleLogs: Using runtime messaging for tab ${tabId}`);
@@ -2061,10 +1894,21 @@ class BROPBridgeClient {
         const recentMessages = tabConsoleMessages.slice(-limit);
         console.log(`🔧 DEBUG: Runtime messaging approach: Found ${recentMessages.length} stored console messages for tab ${tabId}`);
         if (recentMessages.length > 0) {
-          return recentMessages.map(msg => ({
-            ...msg,
-            source: 'runtime_messaging_direct'
-          }));
+          return recentMessages.map(msg => {
+            // Fix message format if it's an object with text property
+            let fixedMessage = msg.message;
+            if (typeof msg.message === 'object' && msg.message.text) {
+              fixedMessage = msg.message.text;
+            } else if (typeof msg.message === 'object') {
+              fixedMessage = JSON.stringify(msg.message);
+            }
+            
+            return {
+              ...msg,
+              message: fixedMessage,
+              source: 'runtime_messaging_direct'
+            };
+          });
         }
       }
 
@@ -2829,17 +2673,33 @@ class BROPBridgeClient {
   async cdpInputInsertText(params) { /* Implementation */ }
 
   logCall(method, type, params, result, error, duration) {
+    // Fix undefined/null method names
+    const safeMethod = method || 'unknown_method';
+    const safeType = type || 'unknown_type';
+    
     const logEntry = {
       id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       timestamp: Date.now(),
-      method: method,
-      type: type,
-      params: JSON.stringify(params),
+      method: safeMethod,
+      type: safeType,
+      params: params ? JSON.stringify(params) : '{}',
       result: result ? JSON.stringify(result) : undefined,
       error: error,
       success: !error,
       duration: duration
     };
+    
+    // Debug logging for undefined methods
+    if (!method) {
+      console.warn('🔧 WARNING: logCall received undefined method:', {
+        originalMethod: method,
+        safeMethod: safeMethod,
+        type: type,
+        hasParams: !!params,
+        hasResult: !!result,
+        hasError: !!error
+      });
+    }
 
     this.callLogs.unshift(logEntry);
     if (this.callLogs.length > this.maxLogEntries) {
