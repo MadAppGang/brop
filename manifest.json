@@ -26,7 +26,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["injected.js", "logs.html", "logs.js"],
+      "resources": ["injected.js", "logs.html", "logs.js", "readability.js", "dom-to-semantic-markdown.js"],
       "matches": ["<all_urls>"]
     }
   ],

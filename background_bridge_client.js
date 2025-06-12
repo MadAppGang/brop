@@ -748,146 +748,194 @@ class BROPBridgeClient {
   async handleGetElement(params) { /* Implementation */ }
 
   async handleGetSimplifiedDOM(params) {
-    // Forward simplified DOM request to active tab's content script
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!activeTab) {
-      throw new Error('No active tab found');
+    const { tabId, format = 'markdown', enableDetailedResponse = false } = params;
+    
+    if (!tabId) {
+      throw new Error('tabId is required. Use list_tabs to see available tabs or create_tab to create a new one.');
     }
-
+    
+    // Get the specified tab
+    let targetTab;
     try {
-      // First try to send message to content script
-      let result = null;
-
-      try {
-        result = await chrome.tabs.sendMessage(activeTab.id, {
-          type: 'BROP_EXECUTE',
-          command: {
-            type: 'get_simplified_dom',
-            params: params
-          },
-          id: `simplified_dom_${Date.now()}`
-        });
-      } catch (sendError) {
-        console.log('Content script not available, injecting manually...');
-        // Content script not available, inject manually
-        result = await this.injectAndExecuteSimplifiedDOM(activeTab.id, params);
-      }
-
-      if (!result) {
-        throw new Error('No result from simplified DOM operation');
-      }
-
-      if (result.success) {
-        return result.result;
-      } else {
-        throw new Error(result.error || 'Failed to get simplified DOM');
-      }
+      targetTab = await chrome.tabs.get(tabId);
     } catch (error) {
-      console.error('Simplified DOM request failed:', error);
-      throw new Error(`Simplified DOM error: ${error.message}`);
+      throw new Error(`Tab ${tabId} not found: ${error.message}`);
     }
-  }
+    
+    // Check if tab is accessible
+    if (targetTab.url.startsWith('chrome://') || targetTab.url.startsWith('chrome-extension://')) {
+      throw new Error(`Cannot access chrome:// URL: ${targetTab.url}. Use a regular webpage tab.`);
+    }
 
-  async injectAndExecuteSimplifiedDOM(tabId, params) {
+    console.log(`🔧 DEBUG handleGetSimplifiedDOM: Extracting ${format} from tab ${tabId} - "${targetTab.title}"`);
+
     try {
-      // Inject a simplified DOM processor directly
+      
+      // First inject the appropriate library
+      await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        files: format === 'html' ? ['readability.js'] : ['dom-to-semantic-markdown.js']
+      });
+      
+      // Now execute the extraction
       const results = await chrome.scripting.executeScript({
         target: { tabId: tabId },
         func: (options) => {
-          // Inline simplified DOM implementation
-          const config = {
-            maxDepth: options.max_depth || 5,
-            format: options.format || 'tree'
-          };
-
-          const simplifyElement = (element, depth) => {
-            if (!element || depth > config.maxDepth) return null;
-
-            const tagName = element.tagName?.toLowerCase();
-            if (!tagName || tagName === 'script' || tagName === 'style') return null;
-
-            const node = {
-              tag: tagName,
-              text: element.textContent?.trim().substring(0, 100) || '',
-              id: element.id || '',
-              classes: Array.from(element.classList || []),
-              children: []
-            };
-
-            if (element.children && depth < config.maxDepth) {
-              for (const child of element.children) {
-                const childNode = simplifyElement(child, depth + 1);
-                if (childNode) node.children.push(childNode);
-              }
-            }
-
-            return node;
-          };
-
+          const { format = 'markdown', enableDetailedResponse = false } = options;
+          
           try {
-            const rootElement = document.body || document.documentElement;
-            const simplifiedTree = simplifyElement(rootElement, 0);
+            console.log(`🔧 BROP: Starting ${format} extraction`);
+            
+            if (format === 'html') {
+              // HTML format: use Readability only
+              if (typeof window.Readability === 'undefined') {
+                throw new Error('Readability library not loaded');
+              }
+              
+              // Clean document clone for processing
+              let documentClone = document.cloneNode(true);
+              documentClone.querySelectorAll('script').forEach(item => item.remove());
+              documentClone.querySelectorAll('style').forEach(item => item.remove());
+              documentClone.querySelectorAll('iframe').forEach(item => item.remove());
+              documentClone.querySelectorAll('noscript').forEach(item => item.remove());
+              
+              let content, stats;
+              
+              if (enableDetailedResponse) {
+                // Use full document content
+                content = documentClone.body ? documentClone.body.innerHTML : documentClone.documentElement.innerHTML;
+                stats = {
+                  source: 'full_document_html',
+                  processed: true,
+                  cleaned: true
+                };
+              } else {
+                // Use Readability to extract article content
+                const reader = new window.Readability(documentClone, {
+                  charThreshold: 0,
+                  keepClasses: true,
+                  nbTopCandidates: 500,
+                });
 
-            if (config.format === 'markdown') {
-              const convertToMarkdown = (node, depth = 0) => {
-                if (!node) return '';
-                let result = '';
-
-                switch (node.tag) {
-                  case 'h1': result = `# ${node.text}\n\n`; break;
-                  case 'h2': result = `## ${node.text}\n\n`; break;
-                  case 'h3': result = `### ${node.text}\n\n`; break;
-                  case 'p': result = `${node.text}\n\n`; break;
-                  case 'a': result = `[${node.text}](#)\n`; break;
-                  default:
-                    if (node.text) result = `${node.text}\n`;
+                const article = reader.parse();
+                
+                if (!article || !article.content) {
+                  throw new Error('No readable content found by Readability');
                 }
 
-                if (node.children) {
-                  result += node.children.map(child => convertToMarkdown(child, depth + 1)).join('');
-                }
-
-                return result;
-              };
-
-              const markdownContent = convertToMarkdown(simplifiedTree);
-
+                content = article.content;
+                stats = {
+                  source: 'readability_html',
+                  title: article.title,
+                  byline: article.byline,
+                  excerpt: article.excerpt,
+                  readTime: article.readTime || 0,
+                  textLength: article.textContent?.length || 0,
+                  processed: true
+                };
+              }
+              
               return {
-                success: true,
-                result: {
-                  format: 'markdown',
-                  simplified_markdown: markdownContent,
-                  total_interactive_elements: 0,
-                  page_structure_summary: `Basic page with ${document.title}`
-                }
+                html: content,
+                title: document.title,
+                url: window.location.href,
+                timestamp: new Date().toISOString(),
+                stats: stats
               };
+              
             } else {
+              // Markdown format: use dom-to-semantic-markdown
+              console.log('Checking for dom-to-semantic-markdown library...');
+              
+              // The bundled library should expose htmlToSMD globally
+              if (!window.htmlToSMD) {
+                throw new Error('dom-to-semantic-markdown library not loaded (htmlToSMD not found)');
+              }
+              
+              let contentElement;
+              
+              if (enableDetailedResponse) {
+                // Use full document body
+                contentElement = document.body || document.documentElement;
+              } else {
+                // Try to find main content area
+                contentElement = document.querySelector('main') || 
+                               document.querySelector('article') || 
+                               document.querySelector('.content') || 
+                               document.querySelector('#content') || 
+                               document.body || 
+                               document.documentElement;
+              }
+              
+              // Use the convertElementToMarkdown function from htmlToSMD
+              const markdown = window.htmlToSMD.convertElementToMarkdown(contentElement, {
+                refifyUrls: false,
+                includeMetadata: true,
+                debug: false
+              });
+              
               return {
-                success: true,
-                result: {
-                  format: 'tree',
-                  root: simplifiedTree,
-                  total_interactive_elements: 0,
-                  page_structure_summary: `Basic page with ${document.title}`
+                markdown: markdown,
+                title: document.title,
+                url: window.location.href,
+                timestamp: new Date().toISOString(),
+                stats: {
+                  source: enableDetailedResponse ? 'dom_to_semantic_markdown_full' : 'dom_to_semantic_markdown_main',
+                  markdownLength: markdown.length,
+                  processed: true
                 }
               };
             }
-          } catch (error) {
+            
+          } catch (processingError) {
+            console.error('🔧 BROP: Processing error:', processingError);
             return {
-              success: false,
-              error: error.message
+              error: 'Content processing failed: ' + processingError.message,
+              title: document.title || 'Unknown',
+              url: window.location.href || 'Unknown'
             };
           }
         },
-        args: [params]
+        args: [{ format, enableDetailedResponse }]
       });
 
-      return results[0]?.result || { success: false, error: 'No result from injection' };
+      console.log(`🔧 DEBUG: executeScript completed, raw results:`, results);
+      
+      let result = results[0]?.result;
+      
+      console.log(`🔧 DEBUG handleGetSimplifiedDOM: executeScript results:`, {
+        resultsLength: results?.length,
+        hasResult: !!result,
+        resultType: typeof result,
+        resultKeys: result ? Object.keys(result) : 'none'
+      });
+      
+      if (!result) {
+        throw new Error('No result from content extraction');
+      }
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      console.log(`✅ Successfully extracted ${format === 'html' ? result.html?.length : result.markdown?.length} chars of ${format} from "${result.title}"`);
+
+      return {
+        ...(format === 'html' ? { html: result.html } : { markdown: result.markdown }),
+        title: result.title,
+        url: result.url,
+        timestamp: result.timestamp,
+        stats: result.stats,
+        tabId: tabId,
+        format: format
+      };
+
     } catch (error) {
-      console.error('Failed to inject simplified DOM processor:', error);
-      return { success: false, error: `Injection failed: ${error.message}` };
+      console.error('Content extraction failed:', error);
+      throw new Error(`Content extraction error: ${error.message}`);
     }
   }
+
 
   // Tab Management Methods
   async handleCreateTab(params) {
