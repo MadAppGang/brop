@@ -445,16 +445,16 @@ class BROPPopup {
           <h2>Raw Log Data</h2>
           <pre>${JSON.stringify(logData, null, 2)}</pre>
         </div>
-
-        <script>
-          // Auto-focus the window
-          window.focus();
-        </script>
       </body>
       </html>
     `);
     
     detailWindow.document.close();
+    
+    // Focus the window without inline scripts
+    setTimeout(() => {
+      detailWindow.focus();
+    }, 50);
   }
 
   async openFullScreenLogs() {
