@@ -107,7 +107,8 @@ class BROPStagehand {
                 type: 'get_simplified_dom',
                 max_depth: 4,
                 include_coordinates: true,
-                include_text_nodes: true
+                include_text_nodes: true,
+                format: 'markdown' // Use markdown format for better AI processing
             });
             
             if (!domResponse.success) {
@@ -160,7 +161,8 @@ class BROPStagehand {
                 this.sendBROPCommand({
                     type: 'get_simplified_dom',
                     max_depth: 5,
-                    include_text_nodes: true
+                    include_text_nodes: true,
+                    format: 'markdown' // Use markdown format for better AI processing
                 })
             ]);
             
@@ -198,16 +200,25 @@ class BROPStagehand {
         
         try {
             // Get comprehensive page analysis
+            this.log('🔍 Requesting simplified DOM...');
             const simplifiedDOM = await this.sendBROPCommand({
                 type: 'get_simplified_dom',
                 max_depth: 4,
                 include_coordinates: true,
                 include_text_nodes: true,
-                include_hidden: false
+                include_hidden: false,
+                format: 'markdown' // Use markdown format for better AI processing
             });
             
-            if (!simplifiedDOM.success) {
-                throw new Error(`Failed to get DOM for observation: ${simplifiedDOM.error}`);
+            this.log(`📋 Simplified DOM response type: ${typeof simplifiedDOM}`);
+            this.log(`📋 Simplified DOM success: ${simplifiedDOM?.success}`);
+            this.log(`📋 Simplified DOM keys: ${Object.keys(simplifiedDOM || {}).join(', ')}`);
+            if (simplifiedDOM?.result) {
+                this.log(`📋 Result keys: ${Object.keys(simplifiedDOM.result).join(', ')}`);
+            }
+            
+            if (!simplifiedDOM || !simplifiedDOM.success) {
+                throw new Error(`Failed to get DOM for observation: ${simplifiedDOM?.error || 'No response received'}`);
             }
             
             // Use AI to analyze and identify actionable elements
@@ -356,10 +367,14 @@ Page Context:
 - Structure: ${domData.page_structure_summary || 'Unknown'}
 - Interactive elements: ${domData.total_interactive_elements || 0}
 - Suggested selectors: ${(domData.suggested_selectors || []).join(', ')}
+- Format: ${domData.format || 'tree'}
 
-DOM Tree: ${JSON.stringify(domData.simplified_tree, null, 2)}
+Page Content:
+${domData.format === 'markdown' ? domData.simplified_markdown || domData.markdown_content || 'No markdown content' : 
+  domData.format === 'html' ? domData.simplified_html || domData.html_content || 'No HTML content' :
+  JSON.stringify(domData.root, null, 2)}
 
-Return ONLY a valid JSON response with this exact format:
+You MUST return ONLY a valid JSON object with no additional text, explanations, or markdown formatting. Use this exact format:
 {
   "success": true,
   "action": {
@@ -463,10 +478,14 @@ Page Context:
 - Structure: ${domData.page_structure_summary || 'Unknown'}
 - Interactive elements: ${domData.total_interactive_elements || 0}
 - Suggested selectors: ${(domData.suggested_selectors || []).join(', ')}
+- Format: ${domData.format || 'tree'}
 
-DOM Tree: ${JSON.stringify(domData.simplified_tree, null, 2)}
+Page Content:
+${domData.format === 'markdown' ? domData.simplified_markdown || domData.markdown_content || 'No markdown content' : 
+  domData.format === 'html' ? domData.simplified_html || domData.html_content || 'No HTML content' :
+  JSON.stringify(domData.root, null, 2)}
 
-Return ONLY a valid JSON array of actionable elements in this format:
+You MUST return ONLY a valid JSON array with no additional text, explanations, or markdown formatting. Use this exact format:
 [
   {
     "description": "element description",
@@ -489,7 +508,10 @@ Return ONLY a valid JSON array of actionable elements in this format:
             
             // Clean AI response - remove markdown formatting and any explanatory text
             let responseText = response.content[0].text.trim();
+            this.log(`🤖 Raw AI response (first 300 chars): ${responseText.substring(0, 300)}`);
+            
             responseText = this.cleanAIResponse(responseText);
+            this.log(`🧹 Cleaned AI response: ${responseText.substring(0, 200)}`);
             
             return JSON.parse(responseText);
             
@@ -524,7 +546,15 @@ Return ONLY a valid JSON array of actionable elements in this format:
             responseText = responseText.replace(/^```\s*/, '').replace(/\s*```$/, '');
         }
         
-        // Find the first JSON array or object
+        // Trim whitespace
+        responseText = responseText.trim();
+        
+        // If the response already starts with [ or {, assume it's clean JSON
+        if (responseText.startsWith('[') || responseText.startsWith('{')) {
+            return responseText;
+        }
+        
+        // Find the first JSON array or object (greedy match to get complete JSON)
         const jsonArrayMatch = responseText.match(/\[[\s\S]*\]/);
         const jsonObjectMatch = responseText.match(/\{[\s\S]*\}/);
         

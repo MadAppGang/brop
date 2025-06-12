@@ -114,7 +114,7 @@ class BROPContentScript {
         return this.getElement(command.params);
       
       case 'get_simplified_dom':
-        return this.getSimplifiedDOM(command.params);
+        return await this.getSimplifiedDOM(command.params);
       
       default:
         throw new Error(`Unknown command type: ${command.type}`);
@@ -373,7 +373,7 @@ class BROPContentScript {
     };
   }
 
-  getSimplifiedDOM(params) {
+  async getSimplifiedDOM(params) {
     // Load DOM simplifier if not already available
     if (!window.DOMSimplifier) {
       // Inject the DOM simplifier script
@@ -384,8 +384,12 @@ class BROPContentScript {
       throw new Error('DOM Simplifier not available');
     }
     
+    console.log('[BROP Content] Simplified DOM params:', params);
     const simplifier = new window.DOMSimplifier();
-    return simplifier.simplifyDOM(params);
+    const result = await simplifier.simplifyDOM(params);
+    console.log('[BROP Content] Simplified DOM result keys:', Object.keys(result || {}));
+    console.log('[BROP Content] Simplified DOM format:', result?.format);
+    return result;
   }
 
   loadDOMSimplifier() {
@@ -416,13 +420,14 @@ class BROPContentScript {
         ]);
       }
 
-      simplifyDOM(options = {}) {
+      async simplifyDOM(options = {}) {
         const config = {
           maxDepth: options.max_depth || 5,
           includeHidden: options.include_hidden || false,
           includeTextNodes: options.include_text_nodes !== false,
           includeCoordinates: options.include_coordinates !== false,
-          focusSelectors: options.focus_selectors || []
+          focusSelectors: options.focus_selectors || [],
+          format: options.format || 'tree' // 'tree', 'html', 'markdown'
         };
 
         let rootElement = document.body;
@@ -438,12 +443,36 @@ class BROPContentScript {
         const suggestedSelectors = this.generateSuggestedSelectors();
         const structureSummary = this.generateStructureSummary(simplifiedTree);
 
-        return {
-          root: simplifiedTree,
+        const baseResult = {
           total_interactive_elements: interactiveCount,
           suggested_selectors: suggestedSelectors,
-          page_structure_summary: structureSummary
+          page_structure_summary: structureSummary,
+          format: config.format
         };
+
+        // Return different formats based on config
+        switch (config.format) {
+          case 'html':
+            return {
+              ...baseResult,
+              html_content: rootElement.outerHTML,
+              simplified_html: this.generateSimplifiedHTML(simplifiedTree)
+            };
+          
+          case 'markdown':
+            return {
+              ...baseResult,
+              markdown_content: await this.convertToMarkdown(rootElement),
+              simplified_markdown: this.generateSimplifiedMarkdown(simplifiedTree)
+            };
+          
+          case 'tree':
+          default:
+            return {
+              ...baseResult,
+              root: simplifiedTree
+            };
+        }
       }
 
       processElement(element, depth, config) {
@@ -730,6 +759,141 @@ class BROPContentScript {
         }
         
         return description;
+      }
+
+      async convertToMarkdown(element) {
+        try {
+          // Use the markdowner API to convert the current page to markdown
+          const currentUrl = window.location.href;
+          const response = await fetch(`https://md.dhr.wtf/?url=${encodeURIComponent(currentUrl)}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            return data.markdown || data.content || 'Failed to extract markdown';
+          } else {
+            // Fallback to simple HTML-to-markdown conversion
+            return this.simpleHtmlToMarkdown(element.innerHTML);
+          }
+        } catch (error) {
+          console.warn('Markdowner API failed, using simple conversion:', error);
+          return this.simpleHtmlToMarkdown(element.innerHTML);
+        }
+      }
+
+      simpleHtmlToMarkdown(html) {
+        // Simple HTML to Markdown conversion for fallback
+        return html
+          .replace(/<h1[^>]*>(.*?)<\/h1>/gi, '# $1\n\n')
+          .replace(/<h2[^>]*>(.*?)<\/h2>/gi, '## $1\n\n')
+          .replace(/<h3[^>]*>(.*?)<\/h3>/gi, '### $1\n\n')
+          .replace(/<h4[^>]*>(.*?)<\/h4>/gi, '#### $1\n\n')
+          .replace(/<h5[^>]*>(.*?)<\/h5>/gi, '##### $1\n\n')
+          .replace(/<h6[^>]*>(.*?)<\/h6>/gi, '###### $1\n\n')
+          .replace(/<strong[^>]*>(.*?)<\/strong>/gi, '**$1**')
+          .replace(/<b[^>]*>(.*?)<\/b>/gi, '**$1**')
+          .replace(/<em[^>]*>(.*?)<\/em>/gi, '*$1*')
+          .replace(/<i[^>]*>(.*?)<\/i>/gi, '*$1*')
+          .replace(/<a[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gi, '[$2]($1)')
+          .replace(/<img[^>]*src="([^"]*)"[^>]*alt="([^"]*)"[^>]*>/gi, '![$2]($1)')
+          .replace(/<img[^>]*src="([^"]*)"[^>]*>/gi, '![Image]($1)')
+          .replace(/<li[^>]*>(.*?)<\/li>/gi, '- $1\n')
+          .replace(/<ul[^>]*>(.*?)<\/ul>/gi, '\n$1\n')
+          .replace(/<ol[^>]*>(.*?)<\/ol>/gi, '\n$1\n')
+          .replace(/<p[^>]*>(.*?)<\/p>/gi, '$1\n\n')
+          .replace(/<div[^>]*>(.*?)<\/div>/gi, '$1\n')
+          .replace(/<br[^>]*>/gi, '\n')
+          .replace(/<[^>]*>/g, '') // Remove remaining HTML tags
+          .replace(/\n{3,}/g, '\n\n') // Normalize multiple newlines
+          .trim();
+      }
+
+      generateSimplifiedHTML(tree) {
+        if (!tree) return '';
+        
+        const tag = tree.tag || 'div';
+        const attrs = [];
+        
+        if (tree.id) attrs.push(`id="${tree.id}"`);
+        if (tree.classes) attrs.push(`class="${tree.classes.join(' ')}"`);
+        if (tree.href) attrs.push(`href="${tree.href}"`);
+        if (tree.type) attrs.push(`type="${tree.type}"`);
+        
+        const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
+        const text = tree.text ? tree.text.trim() : '';
+        
+        if (tree.children && tree.children.length > 0) {
+          const childrenHtml = tree.children
+            .map(child => this.generateSimplifiedHTML(child))
+            .filter(html => html.length > 0)
+            .join('');
+          
+          return `<${tag}${attrStr}>${text}${childrenHtml}</${tag}>`;
+        } else if (text) {
+          return `<${tag}${attrStr}>${text}</${tag}>`;
+        } else {
+          return `<${tag}${attrStr}></${tag}>`;
+        }
+      }
+
+      generateSimplifiedMarkdown(tree, depth = 0) {
+        if (!tree) return '';
+        
+        const indent = '  '.repeat(depth);
+        let result = '';
+        
+        // Convert based on tag type
+        switch (tree.tag) {
+          case 'h1':
+            result = `# ${tree.text}\n\n`;
+            break;
+          case 'h2':
+            result = `## ${tree.text}\n\n`;
+            break;
+          case 'h3':
+            result = `### ${tree.text}\n\n`;
+            break;
+          case 'h4':
+            result = `#### ${tree.text}\n\n`;
+            break;
+          case 'h5':
+            result = `##### ${tree.text}\n\n`;
+            break;
+          case 'h6':
+            result = `###### ${tree.text}\n\n`;
+            break;
+          case 'a':
+            result = `[${tree.text}](${tree.href || '#'})\n`;
+            break;
+          case 'button':
+            result = `**Button:** ${tree.text}\n`;
+            break;
+          case 'input':
+            result = `**Input (${tree.type}):** ${tree.placeholder || tree.value || 'Empty'}\n`;
+            break;
+          case 'p':
+            result = `${tree.text}\n\n`;
+            break;
+          default:
+            if (tree.text && tree.text.trim()) {
+              result = `${tree.text}\n`;
+            }
+        }
+        
+        // Add children
+        if (tree.children && tree.children.length > 0) {
+          const childrenMd = tree.children
+            .map(child => this.generateSimplifiedMarkdown(child, depth + 1))
+            .filter(md => md.length > 0)
+            .join('');
+          result += childrenMd;
+        }
+        
+        return result;
       }
 
       countInteractiveElements(node) {
