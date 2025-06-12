@@ -524,7 +524,7 @@ class BROPPopup {
       const response = await chrome.runtime.sendMessage({ type: 'GET_LOGS', limit: 1000 });
       const logs = response?.logs || [];
 
-      // Create a simple full-screen log viewer window
+      // Create a full-screen log viewer window using the new design
       const fullScreenWindow = window.open('', '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
       
       if (!fullScreenWindow) {
@@ -532,222 +532,359 @@ class BROPPopup {
         return;
       }
 
-      // Create the HTML structure without any inline scripts or onclick handlers
+      // Use the beautiful design from design/logs.html
       fullScreenWindow.document.write(`
         <!DOCTYPE html>
-        <html>
+        <html lang="en">
         <head>
-          <title>BROP Full Screen Logs</title>
-          <style>
-            body { 
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-              margin: 0; 
-              padding: 20px;
-              background: #f5f5f5;
-            }
-            .header {
-              background: white;
-              padding: 20px;
-              border-radius: 8px;
-              box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-              margin-bottom: 20px;
-            }
-            .header h1 {
-              margin: 0;
-              color: #1976d2;
-              font-size: 24px;
-            }
-            .stats {
-              color: #666;
-              font-size: 14px;
-              margin-top: 10px;
-            }
-            .logs-container {
-              background: white;
-              border-radius: 8px;
-              box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-              max-height: 600px;
-              overflow-y: auto;
-            }
-            .log-entry {
-              padding: 15px 20px;
-              border-bottom: 1px solid #eee;
-              cursor: pointer;
-              transition: all 0.3s ease;
-            }
-            .log-entry:hover {
-              background-color: #f8f9fa;
-            }
-            .log-entry.success {
-              border-left: 4px solid #4caf50;
-            }
-            .log-entry.error {
-              border-left: 4px solid #f44336;
-            }
-            .log-entry.expanded {
-              background-color: #f9f9f9;
-            }
-            .log-header {
-              display: flex;
-              justify-content: space-between;
-              align-items: center;
-              margin-bottom: 8px;
-            }
-            .log-method {
-              font-weight: 600;
-              color: #1976d2;
-              font-size: 16px;
-            }
-            .log-meta {
-              display: flex;
-              gap: 15px;
-              align-items: center;
-              font-size: 12px;
-              color: #666;
-            }
-            .log-type {
-              padding: 4px 8px;
-              border-radius: 4px;
-              font-size: 11px;
-              font-weight: 600;
-              color: white;
-            }
-            .log-type.CDP { background: #9c27b0; }
-            .log-type.BROP { background: #4caf50; }
-            .log-type.SYSTEM { background: #ff9800; }
-            .log-details {
-              color: #666;
-              font-size: 14px;
-              max-height: 50px;
-              overflow: hidden;
-              text-overflow: ellipsis;
-              word-break: break-word;
-            }
-            .log-full-details {
-              margin-top: 15px;
-              padding: 15px;
-              background: #f8f8f8;
-              border-radius: 4px;
-              border-left: 3px solid #1976d2;
-              display: none;
-            }
-            .log-full-details.show {
-              display: block;
-            }
-            .detail-section {
-              margin-bottom: 15px;
-            }
-            .detail-section:last-child {
-              margin-bottom: 0;
-            }
-            .detail-label {
-              font-weight: bold;
-              color: #333;
-              margin-bottom: 5px;
-            }
-            .detail-content {
-              background: white;
-              padding: 10px;
-              border-radius: 4px;
-              font-family: 'Monaco', 'Menlo', monospace;
-              font-size: 12px;
-              max-height: 200px;
-              overflow-y: auto;
-              white-space: pre-wrap;
-              word-break: break-all;
-            }
-            .expand-indicator {
-              margin-left: 10px;
-              font-size: 12px;
-              color: #1976d2;
-              font-weight: normal;
-            }
-            .empty-logs {
-              text-align: center;
-              padding: 60px 20px;
-              color: #666;
-              font-style: italic;
-            }
-            .controls {
-              position: fixed;
-              bottom: 20px;
-              right: 20px;
-              display: flex;
-              gap: 10px;
-            }
-            .btn {
-              padding: 10px 20px;
-              border: none;
-              border-radius: 4px;
-              cursor: pointer;
-              font-size: 14px;
-              font-weight: 500;
-              background: #f5f5f5;
-              color: #333;
-              border: 1px solid #ddd;
-            }
-            .btn:hover {
-              background: #e0e0e0;
-            }
-          </style>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>BROP Full Screen Logs</title>
+            <style>
+                :root {
+                    --background: hsl(0 0% 100%);
+                    --foreground: hsl(222.2 84% 4.9%);
+                    --card: hsl(0 0% 100%);
+                    --card-foreground: hsl(222.2 84% 4.9%);
+                    --primary: hsl(221.2 83.2% 53.3%);
+                    --primary-foreground: hsl(210 40% 98%);
+                    --secondary: hsl(210 40% 96.1%);
+                    --secondary-foreground: hsl(222.2 47.4% 11.2%);
+                    --muted: hsl(210 40% 96.1%);
+                    --muted-foreground: hsl(215.4 16.3% 46.9%);
+                    --accent: hsl(210 40% 96.1%);
+                    --accent-foreground: hsl(222.2 47.4% 11.2%);
+                    --destructive: hsl(0 84.2% 60.2%);
+                    --destructive-foreground: hsl(210 40% 98%);
+                    --border: hsl(214.3 31.8% 91.4%);
+                    --input: hsl(214.3 31.8% 91.4%);
+                    --ring: hsl(222.2 84% 4.9%);
+                    --success: hsl(142.1 76.2% 36.3%);
+                    --success-foreground: hsl(355.7 100% 97.3%);
+                    --warning: hsl(38 92% 50%);
+                    --warning-foreground: hsl(48 96% 89%);
+                    --radius: 0.5rem;
+                }
+
+                * {
+                    border-color: var(--border);
+                }
+
+                *, *::before, *::after {
+                    box-sizing: border-box;
+                    margin: 0;
+                    padding: 0;
+                }
+
+                body {
+                    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                    background-color: var(--background);
+                    color: var(--foreground);
+                    font-size: 14px;
+                    line-height: 1.5;
+                    -webkit-font-smoothing: antialiased;
+                    -moz-osx-font-smoothing: grayscale;
+                    min-height: 100vh;
+                }
+
+                .container {
+                    max-width: 1200px;
+                    margin: 0 auto;
+                    padding: 2rem;
+                    min-height: 100vh;
+                    display: flex;
+                    flex-direction: column;
+                }
+
+                .header {
+                    margin-bottom: 2rem;
+                    border-bottom: 1px solid var(--border);
+                    padding-bottom: 1.5rem;
+                }
+
+                .header h1 {
+                    font-size: 2rem;
+                    font-weight: 700;
+                    color: var(--primary);
+                    margin-bottom: 0.5rem;
+                    letter-spacing: -0.025em;
+                }
+
+                .header .subtitle {
+                    color: var(--muted-foreground);
+                    font-size: 1rem;
+                    font-weight: 500;
+                }
+
+                .main-content {
+                    flex: 1;
+                    display: flex;
+                    flex-direction: column;
+                }
+
+                .logs-container {
+                    background-color: var(--card);
+                    border: 1px solid var(--border);
+                    border-radius: var(--radius);
+                    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px 0 rgb(0 0 0 / 0.06);
+                    flex: 1;
+                    overflow: hidden;
+                    display: flex;
+                    flex-direction: column;
+                    overflow-y: auto;
+                }
+
+                .log-entry {
+                    border-bottom: 1px solid var(--border);
+                    transition: all 0.2s ease-in-out;
+                }
+
+                .log-entry:last-child {
+                    border-bottom: none;
+                }
+
+                .log-entry:hover {
+                    background-color: var(--accent);
+                }
+
+                .log-entry.error {
+                    border-left: 4px solid var(--destructive);
+                }
+
+                .log-entry.success {
+                    border-left: 4px solid var(--success);
+                }
+
+                .log-header {
+                    display: grid;
+                    grid-template-columns: 1fr auto auto auto;
+                    align-items: center;
+                    gap: 1rem;
+                    padding: 1rem 1.5rem;
+                    cursor: pointer;
+                }
+
+                .log-method {
+                    display: flex;
+                    align-items: center;
+                    gap: 0.75rem;
+                }
+
+                .log-method-name {
+                    font-size: 1rem;
+                    font-weight: 600;
+                    color: var(--primary);
+                    font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+                }
+
+                .expand-hint {
+                    color: var(--muted-foreground);
+                    font-size: 0.875rem;
+                    font-weight: 500;
+                }
+
+                .log-badge {
+                    background-color: var(--success);
+                    color: var(--success-foreground);
+                    padding: 0.25rem 0.75rem;
+                    border-radius: 9999px;
+                    font-size: 0.75rem;
+                    font-weight: 600;
+                    line-height: 1;
+                    text-transform: uppercase;
+                    letter-spacing: 0.05em;
+                }
+
+                .log-timestamp {
+                    color: var(--muted-foreground);
+                    font-size: 0.875rem;
+                    font-weight: 500;
+                    white-space: nowrap;
+                    font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+                }
+
+                .log-status {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 1.5rem;
+                    height: 1.5rem;
+                }
+
+                .status-icon {
+                    width: 1.25rem;
+                    height: 1.25rem;
+                }
+
+                .status-success {
+                    color: var(--success);
+                }
+
+                .status-error {
+                    color: var(--destructive);
+                }
+
+                .log-content {
+                    display: none;
+                    padding: 0 1.5rem 1rem 1.5rem;
+                    border-top: 1px solid var(--border);
+                    background-color: var(--muted);
+                }
+
+                .log-content.expanded {
+                    display: block;
+                }
+
+                .error-message {
+                    color: var(--destructive);
+                    font-weight: 500;
+                    font-size: 0.875rem;
+                    padding: 0.75rem 1rem;
+                    background-color: hsl(0 84.2% 60.2% / 0.1);
+                    border: 1px solid hsl(0 84.2% 60.2% / 0.2);
+                    border-radius: var(--radius);
+                    margin-top: 0.75rem;
+                }
+
+                .log-details {
+                    margin-top: 0.75rem;
+                    padding: 0.75rem 1rem;
+                    background-color: var(--background);
+                    border-radius: var(--radius);
+                    border: 1px solid var(--border);
+                }
+
+                .log-details-title {
+                    font-weight: 600;
+                    margin-bottom: 0.5rem;
+                    color: var(--foreground);
+                }
+
+                .log-details-content {
+                    font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+                    font-size: 0.875rem;
+                    color: var(--muted-foreground);
+                    white-space: pre-wrap;
+                    word-break: break-all;
+                }
+
+                .footer-actions {
+                    margin-top: 2rem;
+                    display: flex;
+                    justify-content: flex-end;
+                    gap: 1rem;
+                    padding-top: 1.5rem;
+                    border-top: 1px solid var(--border);
+                }
+
+                .btn {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    white-space: nowrap;
+                    border-radius: var(--radius);
+                    font-size: 0.875rem;
+                    font-weight: 500;
+                    height: 2.5rem;
+                    padding: 0 1.5rem;
+                    cursor: pointer;
+                    transition: all 0.2s ease-in-out;
+                    border: 1px solid var(--input);
+                    background-color: var(--background);
+                    color: var(--foreground);
+                    text-decoration: none;
+                    gap: 0.5rem;
+                }
+
+                .btn:hover {
+                    background-color: var(--accent);
+                    color: var(--accent-foreground);
+                }
+
+                .btn:focus-visible {
+                    outline: 2px solid var(--ring);
+                    outline-offset: 2px;
+                }
+
+                .btn-destructive {
+                    background-color: var(--destructive);
+                    color: var(--destructive-foreground);
+                    border-color: var(--destructive);
+                }
+
+                .btn-destructive:hover {
+                    background-color: hsl(0 84.2% 55.2%);
+                    border-color: hsl(0 84.2% 55.2%);
+                }
+
+                .empty-logs {
+                    text-align: center;
+                    padding: 4rem 2rem;
+                    color: var(--muted-foreground);
+                    font-style: italic;
+                }
+
+                @media (max-width: 768px) {
+                    .container {
+                        padding: 1rem;
+                    }
+
+                    .log-header {
+                        grid-template-columns: 1fr auto;
+                        gap: 0.5rem;
+                    }
+
+                    .log-badge,
+                    .log-timestamp {
+                        display: none;
+                    }
+
+                    .footer-actions {
+                        flex-direction: column;
+                    }
+                }
+            </style>
         </head>
         <body>
-          <div class="header">
-            <h1>BROP Call Logs</h1>
-            <div class="stats">Total: ${logs.length} entries</div>
-          </div>
+            <div class="container">
+                <header class="header">
+                    <h1>BROP Call Logs</h1>
+                    <p class="subtitle">Total: ${logs.length} entries</p>
+                </header>
 
-          <div class="logs-container" id="logs-container">
-            ${this.generateSimpleLogEntriesNoInline(logs)}
-          </div>
+                <main class="main-content">
+                    <div class="logs-container" id="logs-container">
+                        ${this.generateModernLogEntries(logs)}
+                    </div>
+                </main>
 
-          <div class="controls">
-            <button class="btn" id="print-btn">📄 Print</button>
-            <button class="btn" id="close-btn">❌ Close</button>
-          </div>
+                <footer class="footer-actions">
+                    <button class="btn" id="print-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="6,9 6,2 18,2 18,9"></polyline>
+                            <path d="M6,18H4a2,2,0,0,1-2-2V11a2,2,0,0,1,2-2H20a2,2,0,0,1,2,2v5a2,2,0,0,1-2,2H18"></path>
+                            <polyline points="6,14 6,22 18,22 18,14"></polyline>
+                        </svg>
+                        Print
+                    </button>
+                    <button class="btn btn-destructive" id="close-btn">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                        Close
+                    </button>
+                </footer>
+            </div>
         </body>
         </html>
       `);
 
       fullScreenWindow.document.close();
       
-      // After the document is ready, add event listeners using DOM manipulation
+      // Add functionality after document is ready
       setTimeout(() => {
-        // Add print functionality
-        const printBtn = fullScreenWindow.document.getElementById('print-btn');
-        if (printBtn) {
-          printBtn.addEventListener('click', () => {
-            fullScreenWindow.print();
-          });
-        }
-        
-        // Add close functionality
-        const closeBtn = fullScreenWindow.document.getElementById('close-btn');
-        if (closeBtn) {
-          closeBtn.addEventListener('click', () => {
-            fullScreenWindow.close();
-          });
-        }
-        
-        // Add click listeners to all log entries
-        const logEntries = fullScreenWindow.document.querySelectorAll('.log-entry');
-        logEntries.forEach((entry, index) => {
-          entry.addEventListener('click', () => {
-            const detailsDiv = fullScreenWindow.document.getElementById('details-' + index);
-            const indicator = entry.querySelector('.expand-indicator');
-            
-            if (detailsDiv.classList.contains('show')) {
-              detailsDiv.classList.remove('show');
-              entry.classList.remove('expanded');
-              indicator.textContent = '(click to expand)';
-            } else {
-              detailsDiv.classList.add('show');
-              entry.classList.add('expanded');
-              indicator.textContent = '(click to collapse)';
-            }
-          });
-        });
-        
+        this.setupFullScreenLogsInteractivity(fullScreenWindow, logs);
         fullScreenWindow.focus();
       }, 100);
       
@@ -755,6 +892,154 @@ class BROPPopup {
       console.error('Error opening full-screen logs:', error);
       alert('Error opening full-screen logs. Check console for details.');
     }
+  }
+
+  generateModernLogEntries(logs) {
+    if (logs.length === 0) {
+      return '<div class="empty-logs">No call logs yet. Make some API calls to see them here.</div>';
+    }
+
+    return logs.map((log, index) => {
+      const time = new Date(log.timestamp || Date.now()).toLocaleString();
+      const status = log.error ? 'error' : 'success';
+      const statusIcon = log.error ? 
+        '<svg class="status-icon status-error" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>' :
+        '<svg class="status-icon status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
+      
+      const method = this.escapeHtml(log.method || 'Unknown');
+      const type = this.escapeHtml(log.type || 'BROP');
+      
+      // Generate content sections
+      const requestDetails = this.generateLogDetails(log);
+      const errorMessage = log.error ? `<div class="error-message">Error: ${this.escapeHtml(String(log.error))}</div>` : '';
+      
+      return `
+        <div class="log-entry ${status}" data-index="${index}">
+          <div class="log-header" data-index="${index}">
+            <div class="log-method">
+              <span class="log-method-name">${method}</span>
+              <span class="expand-hint">(click to expand)</span>
+            </div>
+            <span class="log-badge">${type}</span>
+            <span class="log-timestamp">${time}</span>
+            <div class="log-status">
+              ${statusIcon}
+            </div>
+          </div>
+          <div class="log-content" id="content-${index}">
+            ${errorMessage}
+            <div class="log-details">
+              <div class="log-details-title">Request Details</div>
+              <div class="log-details-content">${requestDetails}</div>
+            </div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  generateLogDetails(log) {
+    const details = [];
+    
+    details.push(`Method: ${log.method || 'N/A'}`);
+    details.push(`Type: ${log.type || 'N/A'}`);
+    details.push(`Timestamp: ${new Date(log.timestamp || Date.now()).toLocaleString()}`);
+    details.push(`Duration: ${log.duration ? log.duration + 'ms' : 'N/A'}`);
+    details.push(`Success: ${log.success !== undefined ? log.success : (log.error ? 'false' : 'true')}`);
+    
+    if (log.params) {
+      try {
+        const paramsText = typeof log.params === 'string' ? 
+          JSON.stringify(JSON.parse(log.params), null, 2) : 
+          JSON.stringify(log.params, null, 2);
+        details.push(`\nParameters:\n${paramsText}`);
+      } catch (e) {
+        details.push(`\nParameters: ${String(log.params)}`);
+      }
+    }
+    
+    if (log.result) {
+      try {
+        const resultText = typeof log.result === 'string' ? 
+          JSON.stringify(JSON.parse(log.result), null, 2) : 
+          JSON.stringify(log.result, null, 2);
+        details.push(`\nResult:\n${resultText}`);
+      } catch (e) {
+        details.push(`\nResult: ${String(log.result)}`);
+      }
+    }
+    
+    if (log.error) {
+      details.push(`\nError Details:\n${String(log.error)}`);
+    }
+    
+    return this.escapeHtml(details.join('\n'));
+  }
+
+  setupFullScreenLogsInteractivity(window, logs) {
+    // Add print functionality
+    const printBtn = window.document.getElementById('print-btn');
+    if (printBtn) {
+      printBtn.addEventListener('click', () => {
+        window.print();
+      });
+    }
+    
+    // Add close functionality
+    const closeBtn = window.document.getElementById('close-btn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', () => {
+        window.close();
+      });
+    }
+    
+    // Add click event listeners to log headers (CSP-compliant)
+    window.document.querySelectorAll('.log-header').forEach(header => {
+      header.addEventListener('click', function() {
+        const index = this.getAttribute('data-index');
+        const content = window.document.getElementById('content-' + index);
+        const isExpanded = content.classList.contains('expanded');
+        
+        // Close all other expanded entries
+        window.document.querySelectorAll('.log-content.expanded').forEach(openContent => {
+          if (openContent !== content) {
+            openContent.classList.remove('expanded');
+          }
+        });
+        
+        // Toggle current entry
+        if (isExpanded) {
+          content.classList.remove('expanded');
+        } else {
+          content.classList.add('expanded');
+        }
+      });
+    });
+    
+    // Keyboard navigation
+    window.document.addEventListener('keydown', function(event) {
+      if (event.key === 'Escape') {
+        // Close all expanded entries
+        window.document.querySelectorAll('.log-content.expanded').forEach(content => {
+          content.classList.remove('expanded');
+        });
+      }
+    });
+    
+    // Print functionality - expand all for printing
+    window.addEventListener('beforeprint', function() {
+      window.document.querySelectorAll('.log-content').forEach(content => {
+        content.style.display = 'block';
+      });
+    });
+    
+    window.addEventListener('afterprint', function() {
+      window.document.querySelectorAll('.log-content').forEach(content => {
+        if (!content.classList.contains('expanded')) {
+          content.style.display = 'none';
+        }
+      });
+    });
   }
 
   generateSimpleLogEntriesNoInline(logs) {
