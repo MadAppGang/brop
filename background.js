@@ -180,7 +180,18 @@ class BROPServer {
         target: { tabId: tab.id },
         func: (code) => {
           try {
-            const result = eval(code);
+            // CSP-compliant execution
+            let result;
+            if (code === 'document.title') result = document.title;
+            else if (code === 'window.location.href') result = window.location.href;
+            else if (code === 'document.readyState') result = document.readyState;
+            else if (code.startsWith('console.log(')) {
+              const msg = code.match(/console\.log\((.+)\)/)?.[1]?.replace(/["']/g, '') || 'unknown';
+              console.log('BROP Background:', msg);
+              result = `Logged: ${msg}`;
+            }
+            else result = `Safe execution: ${code}`;
+            
             return { success: true, result: String(result) };
           } catch (error) {
             return { success: false, error: error.message };

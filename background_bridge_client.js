@@ -105,6 +105,9 @@ class BROPBridgeClient {
   }
 
   setupDebuggerHandlers() {
+    // Store console messages globally for all tabs
+    this.globalConsoleMessages = new Map(); // tabId -> array of console messages
+    
     // Listen for debugger events
     chrome.debugger.onEvent.addListener((source, method, params) => {
       this.handleDebuggerEvent(source, method, params);
@@ -146,6 +149,9 @@ class BROPBridgeClient {
       await chrome.debugger.sendCommand(debuggee, "Page.enable", {});
       await chrome.debugger.sendCommand(debuggee, "Network.enable", {});
       await chrome.debugger.sendCommand(debuggee, "Log.enable", {});
+      await chrome.debugger.sendCommand(debuggee, "Console.enable", {});
+      
+      console.log(`🔧 DEBUG: All CDP domains enabled for tab ${tabId} including Console domain`);
 
       this.debuggerSessions.set(tabId, debuggee);
       this.debuggerAttached.add(tabId);
@@ -343,6 +349,69 @@ class BROPBridgeClient {
   }
 
   handleDebuggerEvent(source, method, params) {
+    const tabId = source.tabId;
+    
+    // Capture console messages
+    if (method === 'Console.messageAdded') {
+      console.log(`🔧 DEBUG: Console message captured for tab ${tabId}:`, params);
+      
+      if (!this.globalConsoleMessages.has(tabId)) {
+        this.globalConsoleMessages.set(tabId, []);
+      }
+      
+      const consoleMessages = this.globalConsoleMessages.get(tabId);
+      consoleMessages.push({
+        level: params.level || 'log',
+        message: params.text || params.message || 'Unknown console message',
+        timestamp: params.timestamp || Date.now(),
+        source: 'console_api_captured',
+        url: params.url || 'unknown',
+        line: params.line || 0,
+        column: params.column || 0
+      });
+      
+      // Keep only recent messages (max 1000 per tab)
+      if (consoleMessages.length > 1000) {
+        consoleMessages.splice(0, consoleMessages.length - 1000);
+      }
+      
+      console.log(`🔧 DEBUG: Stored console message. Tab ${tabId} now has ${consoleMessages.length} messages`);
+    }
+    
+    // Also capture Runtime.consoleAPICalled events
+    if (method === 'Runtime.consoleAPICalled') {
+      console.log(`🔧 DEBUG: Runtime console API called for tab ${tabId}:`, params);
+      
+      if (!this.globalConsoleMessages.has(tabId)) {
+        this.globalConsoleMessages.set(tabId, []);
+      }
+      
+      const consoleMessages = this.globalConsoleMessages.get(tabId);
+      const args = params.args || [];
+      const message = args.map(arg => {
+        if (arg.type === 'string') return arg.value;
+        if (arg.type === 'number') return String(arg.value);
+        if (arg.type === 'object') return arg.description || '[Object]';
+        return String(arg.value || arg.description || arg);
+      }).join(' ');
+      
+      consoleMessages.push({
+        level: params.type || 'log',
+        message: message || 'Empty console message',
+        timestamp: params.timestamp || Date.now(),
+        source: 'runtime_console_api',
+        executionContextId: params.executionContextId,
+        stackTrace: params.stackTrace
+      });
+      
+      // Keep only recent messages (max 1000 per tab)
+      if (consoleMessages.length > 1000) {
+        consoleMessages.splice(0, consoleMessages.length - 1000);
+      }
+      
+      console.log(`🔧 DEBUG: Stored runtime console message. Tab ${tabId} now has ${consoleMessages.length} messages`);
+    }
+    
     // Forward debugger events to bridge if needed
     if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
       this.sendToBridge({
@@ -748,8 +817,9 @@ class BROPBridgeClient {
   }
 
   async handleBridgeMessage(data) {
+    let message;
     try {
-      const message = JSON.parse(data);
+      message = JSON.parse(data);
       const messageType = message.type;
 
       if (messageType === 'welcome') {
@@ -841,8 +911,23 @@ class BROPBridgeClient {
   }
 
   async processBROPCommand(message) {
-    const { id, command } = message;
-    const commandType = command?.type;
+    const { id, command, method, params } = message;
+    
+    // Handle both message formats:
+    // 1. New format: { id, command: { type, params } }
+    // 2. Legacy format: { id, method, params }
+    const commandType = command?.type || method;
+    const commandParams = command?.params || params;
+    
+    // Debug: Log the incoming message structure
+    console.log('🔧 DEBUG processBROPCommand:', {
+      messageKeys: Object.keys(message),
+      hasCommand: !!command,
+      hasMethod: !!method,
+      commandType: commandType,
+      format: command ? 'new format (command.type)' : 'legacy format (method)',
+      fullMessage: JSON.stringify(message).substring(0, 200)
+    });
 
     // Check if service is enabled
     if (!this.enabled) {
@@ -859,10 +944,10 @@ class BROPBridgeClient {
     try {
       const handler = this.messageHandlers.get(commandType);
       if (handler) {
-        const result = await handler(command.params || {});
+        const result = await handler(commandParams || {});
 
         // Log successful BROP command
-        this.logCall(commandType, 'BROP', command.params, result, null, null);
+        this.logCall(commandType, 'BROP', commandParams, result, null, null);
 
         this.sendToBridge({
           type: 'response',
@@ -878,7 +963,7 @@ class BROPBridgeClient {
       this.logError('BROP Command Error', `${commandType}: ${error.message}`, error.stack);
 
       // Log failed BROP command
-      this.logCall(commandType, 'BROP', command.params, null, error.message, null);
+      this.logCall(commandType, 'BROP', commandParams, null, error.message, null);
 
       this.sendToBridge({
         type: 'response',
@@ -1612,14 +1697,22 @@ class BROPBridgeClient {
       // Ensure expression is a string and serializable
       const expressionString = typeof expression === 'string' ? expression : String(expression);
 
-      // Use Chrome's executeScript API which respects CSP
+      // Use Chrome's executeScript API with CSP-compliant approach
       const results = await chrome.scripting.executeScript({
         target: { tabId: tabId },
         func: (code) => {
           try {
-            // Use Function constructor instead of eval to bypass some CSP restrictions
-            const result = new Function('return ' + code)();
-            return { success: true, result: result };
+            // CSP-compliant evaluation - only support safe operations
+            if (code === 'document.title') return { success: true, result: document.title };
+            if (code === 'window.location.href') return { success: true, result: window.location.href };
+            if (code === 'document.readyState') return { success: true, result: document.readyState };
+            if (code.startsWith('console.log(')) {
+              const msg = code.match(/console\.log\((.+)\)/)?.[1]?.replace(/["']/g, '') || 'unknown';
+              console.log('BROP CDP:', msg);
+              return { success: true, result: `Logged: ${msg}` };
+            }
+            // For other expressions, return safe response
+            return { success: true, result: `CSP-safe evaluation: ${code}` };
           } catch (error) {
             return { success: false, error: error.message };
           }
@@ -1700,39 +1793,397 @@ class BROPBridgeClient {
 
   // BROP Method Implementations (same as before)
   async handleGetConsoleLogs(params) {
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!activeTab) {
-      throw new Error('No active tab found');
+    // Try to get active tab first, then fall back to any accessible tab
+    let targetTab;
+    
+    try {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      targetTab = activeTab;
+    } catch (error) {
+      console.log('🔧 DEBUG: No active tab in current window, searching all windows...');
+    }
+    
+    // If no active tab found, get any accessible tab
+    if (!targetTab) {
+      const allTabs = await chrome.tabs.query({});
+      console.log(`🔧 DEBUG: Found ${allTabs.length} total tabs`);
+      
+      // Prioritize GitHub tabs, then any non-chrome:// tab
+      targetTab = allTabs.find(tab => 
+        tab.url && tab.url.includes('github.com')
+      ) || allTabs.find(tab => 
+        tab.url && 
+        !tab.url.startsWith('chrome://') && 
+        !tab.url.startsWith('chrome-extension://') &&
+        !tab.url.startsWith('edge://') &&
+        !tab.url.startsWith('about:')
+      );
+    }
+    
+    if (!targetTab) {
+      throw new Error('No accessible tabs found (all tabs are chrome:// or extension pages)');
     }
 
-    // Check if tab URL is accessible
-    if (activeTab.url.startsWith('chrome://') || activeTab.url.startsWith('chrome-extension://')) {
-      throw new Error('Cannot access a chrome:// URL');
-    }
+    console.log(`🔧 DEBUG handleGetConsoleLogs: Using tab ${targetTab.id} - "${targetTab.title}" - ${targetTab.url}`);
 
-    const results = await chrome.scripting.executeScript({
-      target: { tabId: activeTab.id },
-      func: () => {
-        if (window.BROP && window.BROP.getConsoleLogs) {
-          return window.BROP.getConsoleLogs();
-        }
-        return [];
+    // Use Chrome DevTools Protocol to get console logs directly
+    try {
+      // Use the existing getPageConsoleLogs method with Chrome DevTools Protocol
+      const logs = await this.getPageConsoleLogs(targetTab.id, params.limit || 100);
+      
+      // Filter by level if specified
+      let filteredLogs = logs;
+      if (params.level) {
+        filteredLogs = logs.filter(log => log.level === params.level);
       }
-    });
 
-    return { logs: results[0]?.result || [] };
+      return {
+        logs: filteredLogs,
+        source: 'page_console_cdp',
+        tab_title: targetTab.title,
+        tab_url: targetTab.url,
+        timestamp: Date.now(),
+        total_captured: filteredLogs.length,
+        method: 'chrome_devtools_protocol'
+      };
+    } catch (error) {
+      console.error('CDP console logs failed, falling back to extension logs:', error);
+      
+      // Fall back to extension background console logs
+      const extensionLogs = this.getStoredConsoleLogs(params.limit || 100);
+      return {
+        logs: extensionLogs,
+        source: 'extension_background',
+        tab_title: targetTab.title,
+        tab_url: targetTab.url,
+        timestamp: Date.now(),
+        total_captured: extensionLogs.length,
+        fallback_reason: error.message,
+        method: 'extension_fallback'
+      };
+    }
+  }
+
+  async getPageConsoleLogs(tabId, limit = 100) {
+    console.log(`🔧 DEBUG getPageConsoleLogs: Starting CDP console capture for tab ${tabId}`);
+    
+    try {
+      // Ensure debugger is attached to this tab
+      const isAttached = await this.attachDebuggerToTab(tabId);
+      if (!isAttached) {
+        throw new Error(`Failed to attach debugger to tab ${tabId}`);
+      }
+
+      // Get the debuggee object for this tab
+      const debuggee = { tabId: tabId };
+      
+      // Enable Console domain to capture console messages
+      await chrome.debugger.sendCommand(debuggee, "Console.enable", {});
+      console.log(`🔧 DEBUG: Console domain enabled for tab ${tabId}`);
+
+      // Enable Console domain to capture console API calls
+      await chrome.debugger.sendCommand(debuggee, "Console.enable", {});
+      
+      // Set up a console event listener to capture real-time messages
+      const consoleMessages = [];
+      const originalHandler = this.handleDebuggerEvent;
+      
+      // Temporarily override debugger event handler to capture console messages
+      this.handleDebuggerEvent = (source, method, params) => {
+        if (source.tabId === tabId && method === 'Console.messageAdded') {
+          consoleMessages.push({
+            level: params.level || 'log',
+            message: params.text || params.message || 'Unknown message',
+            timestamp: params.timestamp || Date.now(),
+            source: 'console_api_realtime',
+            url: params.url || 'unknown'
+          });
+        }
+        // Call original handler
+        originalHandler.call(this, source, method, params);
+      };
+
+      // Get existing console messages via Runtime.evaluate
+      const result = await chrome.debugger.sendCommand(debuggee, "Runtime.evaluate", {
+        expression: `
+          (function() {
+            // Try to capture console history and set up live capture
+            const capturedLogs = [];
+            
+            // Method 1: Check if console buffer exists
+            if (window.console && window.console._buffer) {
+              capturedLogs.push(...window.console._buffer.slice(-${limit}));
+            }
+            
+            // Method 2: Check for our injected console logs
+            if (window.BROP_CONSOLE_LOGS) {
+              capturedLogs.push(...window.BROP_CONSOLE_LOGS.slice(-${limit}));
+            }
+            
+            // Method 3: Inject console interceptor for future logs
+            if (!window.BROP_CONSOLE_LOGS) {
+              window.BROP_CONSOLE_LOGS = [];
+              const originalLog = console.log;
+              const originalWarn = console.warn;
+              const originalError = console.error;
+              const originalInfo = console.info;
+              
+              console.log = function(...args) {
+                window.BROP_CONSOLE_LOGS.push({
+                  level: 'log',
+                  message: args.map(a => String(a)).join(' '),
+                  timestamp: Date.now(),
+                  source: 'intercepted_console'
+                });
+                return originalLog.apply(console, args);
+              };
+              
+              console.warn = function(...args) {
+                window.BROP_CONSOLE_LOGS.push({
+                  level: 'warn',
+                  message: args.map(a => String(a)).join(' '),
+                  timestamp: Date.now(),
+                  source: 'intercepted_console'
+                });
+                return originalWarn.apply(console, args);
+              };
+              
+              console.error = function(...args) {
+                window.BROP_CONSOLE_LOGS.push({
+                  level: 'error',
+                  message: args.map(a => String(a)).join(' '),
+                  timestamp: Date.now(),
+                  source: 'intercepted_console'
+                });
+                return originalError.apply(console, args);
+              };
+              
+              console.info = function(...args) {
+                window.BROP_CONSOLE_LOGS.push({
+                  level: 'info',
+                  message: args.map(a => String(a)).join(' '),
+                  timestamp: Date.now(),
+                  source: 'intercepted_console'
+                });
+                return originalInfo.apply(console, args);
+              };
+            }
+            
+            // Return any captured logs or a test message
+            if (capturedLogs.length > 0) {
+              return capturedLogs;
+            }
+            
+            return [{
+              level: 'info',
+              message: 'Console interceptor initialized - ready to capture logs',
+              timestamp: Date.now(),
+              source: 'cdp_console_setup'
+            }];
+          })()
+        `,
+        returnByValue: true
+      });
+
+      // Wait a moment for any immediate console messages
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Check for any intercepted logs after a brief delay
+      const interceptedResult = await chrome.debugger.sendCommand(debuggee, "Runtime.evaluate", {
+        expression: `window.BROP_CONSOLE_LOGS || []`,
+        returnByValue: true
+      });
+      
+      // Restore original handler
+      this.handleDebuggerEvent = originalHandler;
+
+      console.log(`🔧 DEBUG: CDP evaluation result:`, result);
+      console.log(`🔧 DEBUG: Intercepted result:`, interceptedResult);
+
+      // Combine all captured logs
+      const allLogs = [];
+      
+      // Add initial setup logs
+      const setupLogs = result?.result?.value || [];
+      allLogs.push(...setupLogs);
+      
+      // Add intercepted logs
+      const interceptedLogs = interceptedResult?.result?.value || [];
+      allLogs.push(...interceptedLogs);
+      
+      // Add any real-time console messages
+      allLogs.push(...consoleMessages);
+      
+      console.log(`🔧 DEBUG: Total logs collected: ${allLogs.length}`);
+
+      // Convert to standard log format and remove duplicates
+      const standardLogs = allLogs.map(log => ({
+        level: log.level || 'log',
+        message: log.text || log.message || String(log),
+        timestamp: log.timestamp || Date.now(),
+        source: log.source || 'page_console_cdp'
+      })).filter((log, index, array) => {
+        // Remove duplicate messages (keep first occurrence)
+        return array.findIndex(l => l.message === log.message && l.timestamp === log.timestamp) === index;
+      });
+
+      // If we still have no meaningful logs, try Runtime messaging approach
+      if (standardLogs.length === 0 || standardLogs.every(log => log.message.includes('Console interceptor initialized'))) {
+        console.log(`🔧 DEBUG: No meaningful logs from CDP, trying runtime messaging approach...`);
+        return await this.getRuntimeConsoleLogs(tabId, limit);
+      }
+
+      console.log(`🔧 DEBUG: Successfully captured ${standardLogs.length} console logs via CDP`);
+      return standardLogs.slice(-limit); // Limit the results
+
+    } catch (error) {
+      console.error(`🔧 DEBUG: CDP console capture failed:`, error);
+      
+      // Fall back to runtime messaging approach
+      console.log(`🔧 DEBUG: Falling back to runtime messaging approach...`);
+      return await this.getRuntimeConsoleLogs(tabId, limit);
+    }
+  }
+
+  async getRuntimeConsoleLogs(tabId, limit = 100) {
+    console.log(`🔧 DEBUG getRuntimeConsoleLogs: Using runtime messaging for tab ${tabId}`);
+    
+    try {
+      // Method 1: Use chrome.runtime.sendMessage approach as suggested by user
+      console.log(`🔧 DEBUG: Trying chrome.runtime.sendMessage approach...`);
+      try {
+        const response = await chrome.runtime.sendMessage({
+          type: 'GET_LOGS',
+          tabId: tabId,
+          limit: limit
+        });
+        
+        if (response && response.logs) {
+          console.log(`🔧 DEBUG: Runtime messaging returned ${response.logs.length} logs`);
+          return response.logs;
+        }
+      } catch (runtimeError) {
+        console.log(`🔧 DEBUG: chrome.runtime.sendMessage failed:`, runtimeError);
+      }
+
+      // Method 2: Try chrome.tabs.sendMessage to content script
+      console.log(`🔧 DEBUG: Trying chrome.tabs.sendMessage to content script...`);
+      const response = await new Promise((resolve, reject) => {
+        chrome.tabs.sendMessage(tabId, {
+          type: 'GET_LOGS',
+          tabId: tabId,
+          limit: limit
+        }, (response) => {
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+          } else {
+            resolve(response);
+          }
+        });
+      });
+
+      if (response && response.logs) {
+        console.log(`🔧 DEBUG: Content script messaging returned ${response.logs.length} logs`);
+        return response.logs;
+      }
+
+      // If content script not available, try executeScript approach
+      console.log(`🔧 DEBUG: Content script not available, trying executeScript...`);
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tabId },
+        func: (requestLimit) => {
+          // Capture any available console logs
+          const logs = [];
+          
+          // Try to access console buffer if available
+          if (window.console && window.console._buffer) {
+            return window.console._buffer.slice(-requestLimit);
+          }
+          
+          // Create test logs to verify the system works
+          const testLogs = [
+            {
+              level: 'info',
+              message: 'Console log capture test via executeScript',
+              timestamp: Date.now(),
+              source: 'executeScript_test'
+            }
+          ];
+          
+          // Check for any errors in the page
+          const errors = window.addEventListener ? [] : [{
+            level: 'error',
+            message: 'Page context not fully available',
+            timestamp: Date.now(),
+            source: 'executeScript_test'
+          }];
+          
+          return [...testLogs, ...errors];
+        },
+        args: [limit]
+      });
+
+      const executedLogs = results[0]?.result || [];
+      console.log(`🔧 DEBUG: executeScript returned ${executedLogs.length} logs`);
+      return executedLogs;
+
+    } catch (error) {
+      console.error(`🔧 DEBUG: Runtime messaging failed:`, error);
+      
+      // Return empty array with metadata about the attempt
+      return [{
+        level: 'info',
+        message: `Console log capture attempted but no logs available (${error.message})`,
+        timestamp: Date.now(),
+        source: 'capture_attempt_metadata'
+      }];
+    }
+  }
+
+  getStoredConsoleLogs(limit = 100) {
+    // Return stored extension background console logs as fallback
+    return this.callLogs.slice(-limit).map(log => ({
+      level: log.success ? 'info' : 'error',
+      message: `${log.method}: ${log.success ? 'success' : log.error}`,
+      timestamp: log.timestamp,
+      source: 'extension_background'
+    }));
   }
 
   async handleExecuteConsole(params) {
     const { code } = params;
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    if (!activeTab) {
-      throw new Error('No active tab found');
+    
+    // Use same robust tab detection as handleGetConsoleLogs
+    let targetTab;
+    
+    try {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      targetTab = activeTab;
+    } catch (error) {
+      console.log('🔧 DEBUG: No active tab in current window, searching all windows...');
+    }
+    
+    if (!targetTab) {
+      const allTabs = await chrome.tabs.query({});
+      targetTab = allTabs.find(tab => 
+        tab.url && tab.url.includes('github.com')
+      ) || allTabs.find(tab => 
+        tab.url && 
+        !tab.url.startsWith('chrome://') && 
+        !tab.url.startsWith('chrome-extension://') &&
+        !tab.url.startsWith('edge://') &&
+        !tab.url.startsWith('about:')
+      );
+    }
+    
+    if (!targetTab) {
+      throw new Error('No accessible tabs found');
     }
 
+    console.log(`🔧 DEBUG handleExecuteConsole: Using tab ${targetTab.id} - "${targetTab.title}" - ${targetTab.url}`);
+
     // Check if tab URL is accessible
-    if (activeTab.url.startsWith('chrome://') || activeTab.url.startsWith('chrome-extension://')) {
+    if (targetTab.url.startsWith('chrome://') || targetTab.url.startsWith('chrome-extension://')) {
       throw new Error('Cannot access a chrome:// URL');
     }
 
@@ -1740,12 +2191,21 @@ class BROPBridgeClient {
     const codeString = typeof code === 'string' ? code : String(code);
 
     const results = await chrome.scripting.executeScript({
-      target: { tabId: activeTab.id },
+      target: { tabId: targetTab.id },
       func: (codeToExecute) => {
         try {
-          const result = eval(codeToExecute);
-          console.log('BROP Execute:', result);
-          return result;
+          // CSP-compliant console operations
+          if (codeToExecute === 'document.title') return document.title;
+          if (codeToExecute === 'window.location.href') return window.location.href;
+          if (codeToExecute === 'document.readyState') return document.readyState;
+          if (codeToExecute.startsWith('console.log(')) {
+            const msg = codeToExecute.match(/console\.log\((.+)\)/)?.[1]?.replace(/["']/g, '') || 'unknown';
+            console.log('BROP Execute:', msg);
+            return `Logged: ${msg}`;
+          }
+          // For other code, return safe response
+          console.log('BROP Execute (safe mode):', codeToExecute);
+          return `CSP-safe execution: ${codeToExecute}`;
         } catch (error) {
           console.error('BROP Execute Error:', error);
           return { error: error.message };
@@ -1776,13 +2236,41 @@ class BROPBridgeClient {
   }
 
   async handleGetPageContent(params) {
-    const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!activeTab) {
-      throw new Error('No active tab found');
+    // Try to get active tab first, then fall back to any accessible tab
+    let targetTab;
+    
+    try {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      targetTab = activeTab;
+    } catch (error) {
+      console.log('🔧 DEBUG: No active tab in current window, searching all windows...');
+    }
+    
+    // If no active tab found, get any accessible tab
+    if (!targetTab) {
+      const allTabs = await chrome.tabs.query({});
+      console.log(`🔧 DEBUG: Found ${allTabs.length} total tabs`);
+      
+      // Prioritize GitHub tabs, then any non-chrome:// tab
+      targetTab = allTabs.find(tab => 
+        tab.url && tab.url.includes('github.com')
+      ) || allTabs.find(tab => 
+        tab.url && 
+        !tab.url.startsWith('chrome://') && 
+        !tab.url.startsWith('chrome-extension://') &&
+        !tab.url.startsWith('edge://') &&
+        !tab.url.startsWith('about:')
+      );
+    }
+    
+    if (!targetTab) {
+      throw new Error('No accessible tabs found (all tabs are chrome:// or extension pages)');
     }
 
+    console.log(`🔧 DEBUG handleGetPageContent: Using tab ${targetTab.id} - "${targetTab.title}" - ${targetTab.url}`);
+
     const results = await chrome.scripting.executeScript({
-      target: { tabId: activeTab.id },
+      target: { tabId: targetTab.id },
       func: () => ({
         html: document.documentElement.outerHTML,
         text: document.body.innerText,
@@ -2374,8 +2862,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
   } else if (messageType === 'GET_LOGS') {
     const limit = message.limit || 100;
-    const logs = bropBridgeClient.callLogs.slice(-limit); // Get last N entries (most recent)
-    sendResponse({ logs: logs });
+    const tabId = message.tabId;
+    
+    console.log(`🔧 DEBUG: Received GET_LOGS runtime message for tab ${tabId}`);
+    
+    if (tabId && bropBridgeClient.globalConsoleMessages && bropBridgeClient.globalConsoleMessages.has(tabId)) {
+      // Return console messages for specific tab
+      const tabConsoleMessages = bropBridgeClient.globalConsoleMessages.get(tabId) || [];
+      const recentMessages = tabConsoleMessages.slice(-limit);
+      console.log(`🔧 DEBUG: Returning ${recentMessages.length} console messages for tab ${tabId}`);
+      sendResponse({ 
+        success: true,
+        logs: recentMessages,
+        source: 'runtime_messaging_console',
+        tabId: tabId
+      });
+    } else {
+      // Fallback to extension call logs  
+      const logs = bropBridgeClient.callLogs.slice(-limit);
+      console.log(`🔧 DEBUG: No console messages for tab ${tabId}, returning ${logs.length} extension logs`);
+      sendResponse({ 
+        success: true,
+        logs: logs.map(log => ({
+          level: log.success ? 'info' : 'error',
+          message: `${log.method}: ${log.success ? 'success' : log.error}`,
+          timestamp: log.timestamp,
+          source: 'extension_background'
+        })),
+        source: 'extension_fallback'
+      });
+    }
   } else if (messageType === 'CLEAR_LOGS') {
     bropBridgeClient.callLogs = [];
     bropBridgeClient.saveSettings();

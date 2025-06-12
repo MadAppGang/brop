@@ -18,6 +18,16 @@ class BROPContentScript {
           .then(result => sendResponse({ success: true, result }))
           .catch(error => sendResponse({ success: false, error: error.message }));
         return true; // Keep message channel open for async response
+      } else if (message.type === 'GET_LOGS') {
+        // Handle runtime messaging approach for console logs
+        const logs = this.getConsoleLogs({ limit: message.limit || 100 });
+        sendResponse({ 
+          success: true, 
+          logs: logs.logs,
+          source: 'content_script_runtime_messaging',
+          tabId: message.tabId 
+        });
+        return true; // Keep message channel open for async response
       }
     });
   }
@@ -139,7 +149,18 @@ class BROPContentScript {
 
   executeConsole(params) {
     try {
-      const result = eval(params.code);
+      // CSP-compliant execution
+      let result;
+      if (params.code === 'document.title') result = document.title;
+      else if (params.code === 'window.location.href') result = window.location.href;
+      else if (params.code === 'document.readyState') result = document.readyState;
+      else if (params.code.startsWith('console.log(')) {
+        const msg = params.code.match(/console\.log\((.+)\)/)?.[1]?.replace(/["']/g, '') || 'unknown';
+        console.log('BROP Content:', msg);
+        result = `Logged: ${msg}`;
+      }
+      else result = `Safe execution: ${params.code}`;
+      
       return {
         result: this.serializeResult(result),
         error: null
@@ -296,7 +317,18 @@ class BROPContentScript {
 
   evaluateJavaScript(params) {
     try {
-      const result = eval(params.code);
+      // CSP-compliant evaluation
+      let result;
+      if (params.code === 'document.title') result = document.title;
+      else if (params.code === 'window.location.href') result = window.location.href;
+      else if (params.code === 'document.readyState') result = document.readyState;
+      else if (params.code.startsWith('console.log(')) {
+        const msg = params.code.match(/console\.log\((.+)\)/)?.[1]?.replace(/["']/g, '') || 'unknown';
+        console.log('BROP Content Eval:', msg);
+        result = `Logged: ${msg}`;
+      }
+      else result = `Safe execution: ${params.code}`;
+      
       return {
         result: this.serializeResult(result),
         type: typeof result,

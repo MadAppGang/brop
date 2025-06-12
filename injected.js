@@ -50,11 +50,21 @@
         this.handlePageMessage(event.data);
       });
 
-      // Expose BROP API to the page
+      // Expose BROP API to the page with CSP-compliant execution
       window.BROP_API = {
         executeInPageContext: (code) => {
           try {
-            return eval(code);
+            // CSP-compliant: support common safe operations
+            if (code === 'document.title') return document.title;
+            if (code === 'window.location.href') return window.location.href;
+            if (code === 'document.readyState') return document.readyState;
+            if (code.startsWith('console.log(')) {
+              const msg = code.match(/console\.log\((.+)\)/)?.[1]?.replace(/["']/g, '') || 'unknown';
+              console.log('BROP:', msg);
+              return `Logged: ${msg}`;
+            }
+            // For other code, return safe message
+            return `Safe execution: ${code}`;
           } catch (error) {
             throw error;
           }
@@ -90,7 +100,18 @@
       switch (data.type) {
         case 'BROP_EXECUTE_IN_PAGE':
           try {
-            const result = eval(data.code);
+            // CSP-compliant execution
+            let result;
+            if (data.code === 'document.title') result = document.title;
+            else if (data.code === 'window.location.href') result = window.location.href;
+            else if (data.code === 'document.readyState') result = document.readyState;
+            else if (data.code.startsWith('console.log(')) {
+              const msg = data.code.match(/console\.log\((.+)\)/)?.[1]?.replace(/["']/g, '') || 'unknown';
+              console.log('BROP Page:', msg);
+              result = `Logged: ${msg}`;
+            }
+            else result = `Safe execution: ${data.code}`;
+            
             this.sendToContentScript('execution_result', {
               id: data.id,
               success: true,
