@@ -15,28 +15,58 @@ async function testPopupFunctionality() {
             console.log('\n📋 Simulating popup test button click...');
             console.log('   This tests the exact same format the popup uses');
             
-            // This mimics exactly what the popup sends when "Test Extension" button is clicked
+            // First get a list of available tabs
             ws.send(JSON.stringify({
                 id: ++messageId,
-                method: 'execute_console',
-                params: { 
-                    code: 'console.log("BROP test successful"); "Test completed"',
-                    tabId: null  // Will trigger tabId required error, which is expected
-                }
+                method: 'list_tabs',
+                params: {}
             }));
         });
         
         ws.on('message', function message(data) {
             const response = JSON.parse(data);
             
-            console.log(`📥 Response: ${response.success ? '✅ SUCCESS' : '❌ FAILED'}`);
-            
-            if (response.success) {
-                console.log('   ✅ Popup test format works correctly');
-                console.log(`   📄 Result: ${response.result?.result || 'N/A'}`);
-            } else {
-                console.log(`   ❌ Expected error: ${response.error}`);
-                console.log('   ℹ️  This is normal - tabId is required for execute_console');
+            if (response.id === 1) {
+                // Got tabs list, now test with a valid tab
+                console.log(`📥 Response: ${response.success ? '✅ SUCCESS' : '❌ FAILED'}`);
+                
+                if (response.success && response.result?.tabs?.length > 0) {
+                    // Find an accessible tab (not chrome:// URL)
+                    const accessibleTab = response.result.tabs.find(tab => tab.accessible);
+                    
+                    if (accessibleTab) {
+                        console.log(`📋 Testing execute_console with accessible tab ${accessibleTab.tabId}...`);
+                        
+                        // Now test the actual popup functionality with valid tabId
+                        ws.send(JSON.stringify({
+                            id: ++messageId,
+                            method: 'execute_console',
+                            params: { 
+                                code: 'console.log("BROP test successful"); "Test completed"',
+                                tabId: accessibleTab.tabId
+                            }
+                        }));
+                    } else {
+                        console.log('❌ No accessible tabs found for testing');
+                        console.log('   Create a tab with a regular webpage to test');
+                        ws.close();
+                        resolve();
+                    }
+                } else {
+                    console.log('❌ Failed to get tabs list or no tabs available');
+                    ws.close();
+                    resolve();
+                }
+            } else if (response.id === 2) {
+                // Got execute_console response
+                console.log(`📥 Execute Console Response: ${response.success ? '✅ SUCCESS' : '❌ FAILED'}`);
+                
+                if (response.success) {
+                    console.log('   ✅ Popup test format works correctly');
+                    console.log(`   📄 Result: ${response.result?.result || 'N/A'}`);
+                } else {
+                    console.log(`   ❌ Error: ${response.error}`);
+                }
             }
             
             console.log('\n🎯 POPUP TEST VERIFICATION:');

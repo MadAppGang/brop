@@ -15,8 +15,9 @@ class BROPPopup {
 
   setupEventListeners() {
     // Tab switching
-    document.querySelectorAll('.tab').forEach(tab => {
+    document.querySelectorAll('.tab-link').forEach(tab => {
       tab.addEventListener('click', (e) => {
+        e.preventDefault();
         const targetTab = e.target.dataset.tab;
         this.switchTab(targetTab);
       });
@@ -98,12 +99,12 @@ class BROPPopup {
     });
     
     // Remove active class from all tabs
-    document.querySelectorAll('.tab').forEach(tab => {
+    document.querySelectorAll('.tab-link').forEach(tab => {
       tab.classList.remove('active');
     });
     
     // Show target tab content
-    const targetContent = document.getElementById(`${tabName}-tab`);
+    const targetContent = document.getElementById(tabName);
     if (targetContent) {
       targetContent.classList.add('active');
     }
@@ -150,7 +151,7 @@ class BROPPopup {
     const textElement = document.getElementById('connection-text');
     
     if (statusElement && textElement) {
-      statusElement.className = active ? 'status active' : 'status inactive';
+      statusElement.className = active ? 'status-banner' : 'status-banner inactive';
       textElement.textContent = message;
     }
   }
@@ -270,30 +271,29 @@ class BROPPopup {
 
     const entries = logs.slice(-10).map((log, index) => {
       const time = new Date(log.timestamp || Date.now()).toLocaleTimeString();
-      const duration = log.duration ? `${log.duration}ms` : '';
       const status = log.error ? 'error' : 'success';
-      const statusIcon = log.error ? '❌' : '✅';
+      const statusText = log.error ? 'Error' : 'Success';
+      const checkIcon = `<svg class="icon-check-small" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+      </svg>`;
       
-      return `<div class="log-entry-compact ${status}" data-log-index="${index}" data-log-id="${log.id || index}">
-        <div class="log-compact-header">
-          <div class="log-compact-left">
-            <span class="status-icon">${statusIcon}</span>
-            <span class="log-method-compact">${log.method || 'Unknown'}</span>
-            <span class="log-context">${log.error || 'Success'}</span>
-          </div>
-          <div class="log-compact-right">
-            <span class="log-type ${log.type || 'BROP'}">${log.type || 'BROP'}</span>
-            <span class="log-time-compact">${time}</span>
-            ${duration ? `<span class="log-duration-compact">${duration}</span>` : ''}
+      return `<div class="log-item ${status}" data-log-index="${index}" data-log-id="${log.id || index}">
+        <div class="checkbox-container">
+          <div class="custom-checkbox">
+            ${checkIcon}
           </div>
         </div>
+        <span class="type">${log.method || 'Unknown'}</span>
+        <span class="status">${statusText}</span>
+        <span class="badge">${log.type || 'BROP'}</span>
+        <span class="time">${time}</span>
       </div>`;
     }).join('');
     
     logsContainer.innerHTML = entries;
     
     // Add click event listeners to log entries
-    logsContainer.querySelectorAll('.log-entry-compact').forEach((entry, index) => {
+    logsContainer.querySelectorAll('.log-item').forEach((entry, index) => {
       entry.addEventListener('click', () => {
         const logData = logs[logs.length - 10 + index]; // Get the actual log data
         this.openLogDetailView(logData);
@@ -885,51 +885,6 @@ ID: ${this.escapeHtml(log.id || 'N/A')}</div>
     }
   }
 
-  async testConnection() {
-    const button = document.getElementById('test-connection');
-    const originalText = button.textContent;
-    
-    button.textContent = 'Testing...';
-    button.disabled = true;
-
-    try {
-      // Test basic functionality
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (!activeTab) {
-        throw new Error('No active tab found');
-      }
-
-      // Test console execution
-      const response = await chrome.tabs.sendMessage(activeTab.id, {
-        type: 'BROP_EXECUTE',
-        method: 'execute_console',
-        params: { code: 'console.log("BROP test successful"); "Test completed"' },
-        id: Date.now().toString()
-      });
-
-      if (response && response.success) {
-        button.textContent = 'Success!';
-        button.style.backgroundColor = '#4caf50';
-        setTimeout(() => {
-          button.textContent = originalText;
-          button.style.backgroundColor = '';
-          button.disabled = false;
-        }, 2000);
-      } else {
-        throw new Error(response?.error || 'Unknown error');
-      }
-    } catch (error) {
-      button.textContent = 'Failed';
-      button.style.backgroundColor = '#f44336';
-      console.error('Test failed:', error);
-      
-      setTimeout(() => {
-        button.textContent = originalText;
-        button.style.backgroundColor = '';
-        button.disabled = false;
-      }, 2000);
-    }
-  }
 }
 
 // Initialize popup when DOM is loaded

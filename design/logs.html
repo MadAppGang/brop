@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BROP Full Screen Logs</title>
+    <style>
+        :root {
+            --background: hsl(0 0% 100%);
+            --foreground: hsl(222.2 84% 4.9%);
+            --card: hsl(0 0% 100%);
+            --card-foreground: hsl(222.2 84% 4.9%);
+            --popover: hsl(0 0% 100%);
+            --popover-foreground: hsl(222.2 84% 4.9%);
+            --primary: hsl(221.2 83.2% 53.3%);
+            --primary-foreground: hsl(210 40% 98%);
+            --secondary: hsl(210 40% 96.1%);
+            --secondary-foreground: hsl(222.2 47.4% 11.2%);
+            --muted: hsl(210 40% 96.1%);
+            --muted-foreground: hsl(215.4 16.3% 46.9%);
+            --accent: hsl(210 40% 96.1%);
+            --accent-foreground: hsl(222.2 47.4% 11.2%);
+            --destructive: hsl(0 84.2% 60.2%);
+            --destructive-foreground: hsl(210 40% 98%);
+            --border: hsl(214.3 31.8% 91.4%);
+            --input: hsl(214.3 31.8% 91.4%);
+            --ring: hsl(222.2 84% 4.9%);
+            --success: hsl(142.1 76.2% 36.3%);
+            --success-foreground: hsl(355.7 100% 97.3%);
+            --warning: hsl(38 92% 50%);
+            --warning-foreground: hsl(48 96% 89%);
+            --radius: 0.5rem;
+        }
+
+        * {
+            border-color: var(--border);
+        }
+
+        *, *::before, *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--background);
+            color: var(--foreground);
+            font-size: 14px;
+            line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            margin-bottom: 2rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 1.5rem;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 0.5rem;
+            letter-spacing: -0.025em;
+        }
+
+        .header .subtitle {
+            color: var(--muted-foreground);
+            font-size: 1rem;
+            font-weight: 500;
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Logs Container */
+        .logs-container {
+            background-color: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px 0 rgb(0 0 0 / 0.06);
+            flex: 1;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Log Entry */
+        .log-entry {
+            border-bottom: 1px solid var(--border);
+            transition: all 0.2s ease-in-out;
+        }
+
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .log-entry:hover {
+            background-color: var(--accent);
+        }
+
+        .log-entry.error {
+            border-left: 4px solid var(--destructive);
+        }
+
+        .log-entry.success {
+            border-left: 4px solid var(--success);
+        }
+
+        .log-header {
+            display: grid;
+            grid-template-columns: 1fr auto auto auto;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem 1.5rem;
+            cursor: pointer;
+        }
+
+        .log-method {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .log-method-name {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--primary);
+            font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+        }
+
+        .expand-hint {
+            color: var(--muted-foreground);
+            font-size: 0.875rem;
+            font-weight: 500;
+        }
+
+        .log-badge {
+            background-color: var(--success);
+            color: var(--success-foreground);
+            padding: 0.25rem 0.75rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            line-height: 1;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .log-timestamp {
+            color: var(--muted-foreground);
+            font-size: 0.875rem;
+            font-weight: 500;
+            white-space: nowrap;
+            font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+        }
+
+        .log-status {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.5rem;
+            height: 1.5rem;
+        }
+
+        .status-icon {
+            width: 1.25rem;
+            height: 1.25rem;
+        }
+
+        .status-success {
+            color: var(--success);
+        }
+
+        .status-error {
+            color: var(--destructive);
+        }
+
+        /* Expandable Content */
+        .log-content {
+            display: none;
+            padding: 0 1.5rem 1rem 1.5rem;
+            border-top: 1px solid var(--border);
+            background-color: var(--muted);
+        }
+
+        .log-content.expanded {
+            display: block;
+        }
+
+        .error-message {
+            color: var(--destructive);
+            font-weight: 500;
+            font-size: 0.875rem;
+            padding: 0.75rem 1rem;
+            background-color: hsl(0 84.2% 60.2% / 0.1);
+            border: 1px solid hsl(0 84.2% 60.2% / 0.2);
+            border-radius: var(--radius);
+            margin-top: 0.75rem;
+        }
+
+        .log-details {
+            margin-top: 0.75rem;
+            padding: 0.75rem 1rem;
+            background-color: var(--background);
+            border-radius: var(--radius);
+            border: 1px solid var(--border);
+        }
+
+        .log-details-title {
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: var(--foreground);
+        }
+
+        .log-details-content {
+            font-family: 'JetBrains Mono', 'Fira Code', Consolas, monospace;
+            font-size: 0.875rem;
+            color: var(--muted-foreground);
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+
+        /* Footer Actions */
+        .footer-actions {
+            margin-top: 2rem;
+            display: flex;
+            justify-content: flex-end;
+            gap: 1rem;
+            padding-top: 1.5rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            white-space: nowrap;
+            border-radius: var(--radius);
+            font-size: 0.875rem;
+            font-weight: 500;
+            height: 2.5rem;
+            padding: 0 1.5rem;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+            border: 1px solid var(--input);
+            background-color: var(--background);
+            color: var(--foreground);
+            text-decoration: none;
+            gap: 0.5rem;
+        }
+
+        .btn:hover {
+            background-color: var(--accent);
+            color: var(--accent-foreground);
+        }
+
+        .btn:focus-visible {
+            outline: 2px solid var(--ring);
+            outline-offset: 2px;
+        }
+
+        .btn-destructive {
+            background-color: var(--destructive);
+            color: var(--destructive-foreground);
+            border-color: var(--destructive);
+        }
+
+        .btn-destructive:hover {
+            background-color: hsl(0 84.2% 55.2%);
+            border-color: hsl(0 84.2% 55.2%);
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+
+            .log-header {
+                grid-template-columns: 1fr auto;
+                gap: 0.5rem;
+            }
+
+            .log-badge,
+            .log-timestamp {
+                display: none;
+            }
+
+            .footer-actions {
+                flex-direction: column;
+            }
+        }
+
+        /* Scrollbar Styling */
+        .logs-container {
+            scrollbar-width: thin;
+            scrollbar-color: var(--muted-foreground) var(--background);
+        }
+
+        .logs-container::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .logs-container::-webkit-scrollbar-track {
+            background: var(--background);
+        }
+
+        .logs-container::-webkit-scrollbar-thumb {
+            background-color: var(--muted-foreground);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>BROP Call Logs</h1>
+            <p class="subtitle">Total: 9 entries</p>
+        </header>
+
+        <main class="main-content">
+            <div class="logs-container">
+                <div class="log-entry success">
+                    <div class="log-header" onclick="toggleLogContent(this)">
+                        <div class="log-method">
+                            <span class="log-method-name">close_tab</span>
+                            <span class="expand-hint">(click to expand)</span>
+                        </div>
+                        <span class="log-badge">BROP</span>
+                        <span class="log-timestamp">13/06/2025, 00:07:16</span>
+                        <div class="log-status">
+                            <svg class="status-icon status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="log-content">
+                        <div class="log-details">
+                            <div class="log-details-title">Request Details</div>
+                            <div class="log-details-content">Method: close_tab
+Parameters: { tabId: 1234 }
+Response: { success: true }</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="log-entry success">
+                    <div class="log-header" onclick="toggleLogContent(this)">
+                        <div class="log-method">
+                            <span class="log-method-name">get_page_content</span>
+                            <span class="expand-hint">(click to expand)</span>
+                        </div>
+                        <span class="log-badge">BROP</span>
+                        <span class="log-timestamp">13/06/2025, 00:07:15</span>
+                        <div class="log-status">
+                            <svg class="status-icon status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="log-content">
+                        <div class="log-details">
+                            <div class="log-details-title">Request Details</div>
+                            <div class="log-details-content">Method: get_page_content
+Parameters: { url: "https://example.com" }
+Response: { content: "<!DOCTYPE html>..." }</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="log-entry success">
+                    <div class="log-header" onclick="toggleLogContent(this)">
+                        <div class="log-method">
+                            <span class="log-method-name">execute_console</span>
+                            <span class="expand-hint">(click to expand)</span>
+                        </div>
+                        <span class="log-badge">BROP</span>
+                        <span class="log-timestamp">13/06/2025, 00:07:15</span>
+                        <div class="log-status">
+                            <svg class="status-icon status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="log-content">
+                        <div class="log-details">
+                            <div class="log-details-title">Request Details</div>
+                            <div class="log-details-content">Method: execute_console
+Parameters: { script: "console.log('Hello World')" }
+Response: { result: "Hello World" }</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="log-entry success">
+                    <div class="log-header" onclick="toggleLogContent(this)">
+                        <div class="log-method">
+                            <span class="log-method-name">create_tab</span>
+                            <span class="expand-hint">(click to expand)</span>
+                        </div>
+                        <span class="log-badge">BROP</span>
+                        <span class="log-timestamp">13/06/2025, 00:07:13</span>
+                        <div class="log-status">
+                            <svg class="status-icon status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="log-content">
+                        <div class="log-details">
+                            <div class="log-details-title">Request Details</div>
+                            <div class="log-details-content">Method: create_tab
+Parameters: { url: "https://google.com" }
+Response: { tabId: 5678, success: true }</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="log-entry success">
+                    <div class="log-header" onclick="toggleLogContent(this)">
+                        <div class="log-method">
+                            <span class="log-method-name">create_tab</span>
+                            <span class="expand-hint">(click to expand)</span>
+                        </div>
+                        <span class="log-badge">BROP</span>
+                        <span class="log-timestamp">13/06/2025, 00:06:29</span>
+                        <div class="log-status">
+                            <svg class="status-icon status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="log-content">
+                        <div class="log-details">
+                            <div class="log-details-title">Request Details</div>
+                            <div class="log-details-content">Method: create_tab
+Parameters: { url: "https://github.com" }
+Response: { tabId: 9101, success: true }</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="log-entry success">
+                    <div class="log-header" onclick="toggleLogContent(this)">
+                        <div class="log-method">
+                            <span class="log-method-name">get_extension_errors</span>
+                            <span class="expand-hint">(click to expand)</span>
+                        </div>
+                        <span class="log-badge">BROP</span>
+                        <span class="log-timestamp">13/06/2025, 00:06:28</span>
+                        <div class="log-status">
+                            <svg class="status-icon status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="log-content">
+                        <div class="log-details">
+                            <div class="log-details-title">Request Details</div>
+                            <div class="log-details-content">Method: get_extension_errors
+Parameters: {}
+Response: { errors: [] }</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="log-entry success">
+                    <div class="log-header" onclick="toggleLogContent(this)">
+                        <div class="log-method">
+                            <span class="log-method-name">list_tabs</span>
+                            <span class="expand-hint">(click to expand)</span>
+                        </div>
+                        <span class="log-badge">BROP</span>
+                        <span class="log-timestamp">13/06/2025, 00:06:28</span>
+                        <div class="log-status">
+                            <svg class="status-icon status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="log-content">
+                        <div class="log-details">
+                            <div class="log-details-title">Request Details</div>
+                            <div class="log-details-content">Method: list_tabs
+Parameters: {}
+Response: { tabs: [
+  { id: 1, url: "https://google.com", title: "Google" },
+  { id: 2, url: "https://github.com", title: "GitHub" }
+] }</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="log-entry success">
+                    <div class="log-header" onclick="toggleLogContent(this)">
+                        <div class="log-method">
+                            <span class="log-method-name">get_extension_errors</span>
+                            <span class="expand-hint">(click to expand)</span>
+                        </div>
+                        <span class="log-badge">BROP</span>
+                        <span class="log-timestamp">13/06/2025, 00:05:51</span>
+                        <div class="log-status">
+                            <svg class="status-icon status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="log-content">
+                        <div class="log-details">
+                            <div class="log-details-title">Request Details</div>
+                            <div class="log-details-content">Method: get_extension_errors
+Parameters: {}
+Response: { errors: [] }</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="log-entry error">
+                    <div class="log-header" onclick="toggleLogContent(this)">
+                        <div class="log-method">
+                            <span class="log-method-name">this_command_does_not_exist</span>
+                            <span class="expand-hint">(click to expand)</span>
+                        </div>
+                        <span class="log-badge">BROP</span>
+                        <span class="log-timestamp">13/06/2025, 00:05:50</span>
+                        <div class="log-status">
+                            <svg class="status-icon status-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                            </svg>
+                        </div>
+                    </div>
+                    <div class="log-content">
+                        <div class="error-message">
+                            Error: Unsupported BROP command: this_command_does_not_exist
+                        </div>
+                        <div class="log-details">
+                            <div class="log-details-title">Request Details</div>
+                            <div class="log-details-content">Method: this_command_does_not_exist
+Parameters: { test: true }
+Error: Command not found in BROP API</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="footer-actions">
+            <button class="btn" onclick="window.print()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="6,9 6,2 18,2 18,9"></polyline>
+                    <path d="M6,18H4a2,2,0,0,1-2-2V11a2,2,0,0,1,2-2H20a2,2,0,0,1,2,2v5a2,2,0,0,1-2,2H18"></path>
+                    <polyline points="6,14 6,22 18,22 18,14"></polyline>
+                </svg>
+                Print
+            </button>
+            <button class="btn btn-destructive" onclick="window.close()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+                Close
+            </button>
+        </footer>
+    </div>
+
+    <script>
+        function toggleLogContent(header) {
+            const logEntry = header.parentElement;
+            const content = logEntry.querySelector('.log-content');
+            const isExpanded = content.classList.contains('expanded');
+            
+            // Close all other expanded entries
+            document.querySelectorAll('.log-content.expanded').forEach(openContent => {
+                if (openContent !== content) {
+                    openContent.classList.remove('expanded');
+                }
+            });
+            
+            // Toggle current entry
+            if (isExpanded) {
+                content.classList.remove('expanded');
+            } else {
+                content.classList.add('expanded');
+            }
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'Escape') {
+                // Close all expanded entries
+                document.querySelectorAll('.log-content.expanded').forEach(content => {
+                    content.classList.remove('expanded');
+                });
+            }
+        });
+
+        // Print functionality
+        window.addEventListener('beforeprint', function() {
+            // Expand all entries for printing
+            document.querySelectorAll('.log-content').forEach(content => {
+                content.style.display = 'block';
+            });
+        });
+
+        window.addEventListener('afterprint', function() {
+            // Restore original state after printing
+            document.querySelectorAll('.log-content').forEach(content => {
+                if (!content.classList.contains('expanded')) {
+                    content.style.display = 'none';
+                }
+            });
+        });
+    </script>
+</body>
+</html>

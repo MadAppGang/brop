@@ -51,10 +51,8 @@ async function debugWorkflow() {
         
         const testCommands = [
             { name: 'Extension Errors Check', cmd: { method: 'get_extension_errors', params: { limit: 5 } } },
-            { name: 'Navigation Test', cmd: { method: 'navigate', params: { url: 'https://example.com' } } },
-            { name: 'Screenshot Test', cmd: { method: 'get_screenshot', params: { format: 'png' } } },
-            { name: 'Page Content Test', cmd: { method: 'get_page_content', params: {} } },
-            { name: 'Simplified DOM Test', cmd: { method: 'get_simplified_dom', params: { max_depth: 2 } } },
+            { name: 'List Tabs Test', cmd: { method: 'list_tabs', params: {} } },
+            { name: 'Create Tab Test', cmd: { method: 'create_tab', params: { url: 'https://example.com' } } },
             { name: 'Invalid Command Test', cmd: { method: 'this_command_does_not_exist', params: {} } }
         ];
         
