@@ -117,11 +117,16 @@ class BROPPopup {
   }
 
   startStatusUpdates() {
-    // Update status every 2 seconds
+    // Update status every 5 seconds (less frequent to avoid interrupting user)
     setInterval(() => {
       this.updateStatus();
+      // Only update logs if user is not actively viewing them
+      if (document.querySelector('.tab-link[data-tab="call-logs"]').classList.contains('active')) {
+        // Don't auto-refresh logs when user is viewing them
+        return;
+      }
       this.updateConsolePreview();
-    }, 2000);
+    }, 5000);
   }
 
   async updateStatus() {
@@ -290,6 +295,10 @@ class BROPPopup {
       </div>`;
     }).join('');
     
+    // Remember current scroll position
+    const currentScrollTop = logsContainer.scrollTop;
+    const wasAtBottom = logsContainer.scrollTop >= (logsContainer.scrollHeight - logsContainer.clientHeight - 5);
+    
     logsContainer.innerHTML = entries;
     
     // Add click event listeners to log entries
@@ -300,7 +309,13 @@ class BROPPopup {
       });
     });
     
-    logsContainer.scrollTop = logsContainer.scrollHeight;
+    // Only auto-scroll to bottom if user was already at the bottom
+    if (wasAtBottom) {
+      logsContainer.scrollTop = logsContainer.scrollHeight;
+    } else {
+      // Try to maintain the scroll position, or close to it
+      logsContainer.scrollTop = currentScrollTop;
+    }
   }
 
   openLogDetailView(logData) {
