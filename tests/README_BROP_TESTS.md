@@ -7,6 +7,7 @@ This directory contains a comprehensive test suite for the Browser Remote Operat
 ### 🧪 Test Components
 
 1. **Protocol Buffer Tests** (`brop_protobuf_tests.js`)
+
    - Message serialization/deserialization validation
    - Command structure validation
    - Response format verification
@@ -14,6 +15,7 @@ This directory contains a comprehensive test suite for the Browser Remote Operat
    - Message size validation
 
 2. **Comprehensive Protocol Tests** (`comprehensive_brop_protocol_tests.js`)
+
    - WebSocket connectivity testing
    - CDP (Chrome DevTools Protocol) command validation
    - BROP-specific command testing
@@ -21,6 +23,7 @@ This directory contains a comprehensive test suite for the Browser Remote Operat
    - Concurrent connection handling
 
 3. **Integration Tests** (`brop_integration_tests.py`)
+
    - End-to-end workflow testing
    - Real browser automation scenarios
    - Error handling validation
@@ -63,13 +66,14 @@ apt-get install jq
 Before running tests, ensure the BROP bridge server is running:
 
 ```bash
-cd bridge-server
+cd bridge
 node bridge_server.js
 ```
 
 This will start services on:
+
 - **Port 9222**: CDP (Chrome DevTools Protocol) server
-- **Port 9223**: BROP native command server  
+- **Port 9223**: BROP native command server
 - **Port 9224**: Extension WebSocket server
 - **Port 9225**: HTTP discovery endpoints
 
@@ -106,11 +110,12 @@ Tests the core message structure and validation:
 
 - ✅ **BrowserMessage serialization**: Tests message wrapper format
 - ✅ **Command validation**: Validates all 10 command types
-- ✅ **Response validation**: Tests response structure for all command types  
+- ✅ **Response validation**: Tests response structure for all command types
 - ✅ **Error handling**: Tests malformed message handling
 - ✅ **Size validation**: Tests various payload sizes
 
 **Commands Tested**:
+
 - `get_console_logs` - Console log retrieval
 - `execute_console` - JavaScript execution in console
 - `get_screenshot` - Page screenshot capture
@@ -207,11 +212,11 @@ Modify test parameters in each test file:
 ```javascript
 // comprehensive_brop_protocol_tests.js
 class BROPProtocolTestSuite {
-    constructor() {
-        this.testTimeout = 10000;  // 10 seconds
-        this.wsPort = 9222;
-        this.bropPort = 9223;
-    }
+  constructor() {
+    this.testTimeout = 10000; // 10 seconds
+    this.wsPort = 9222;
+    this.bropPort = 9223;
+  }
 }
 ```
 
@@ -229,28 +234,37 @@ class BROPIntegrationTestSuite:
 ### Common Issues
 
 #### 1. Connection Refused Errors
+
 ```
 Error: connect ECONNREFUSED 127.0.0.1:9222
 ```
+
 **Solution**: Ensure BROP bridge server is running:
+
 ```bash
-cd bridge-server && node bridge_server.js
+cd bridge && node bridge_server.js
 ```
 
 #### 2. Python Module Not Found
+
 ```
 ModuleNotFoundError: No module named 'websockets'
 ```
+
 **Solution**: Install Python dependencies:
+
 ```bash
 pip3 install websockets aiohttp
 ```
 
 #### 3. jq Command Not Found
+
 ```
 ./run_all_brop_tests.sh: line 45: jq: command not found
 ```
+
 **Solution**: Install jq:
+
 ```bash
 # macOS
 brew install jq
@@ -260,10 +274,13 @@ sudo apt-get install jq
 ```
 
 #### 4. Permission Denied on Test Runner
+
 ```
 bash: ./run_all_brop_tests.sh: Permission denied
 ```
+
 **Solution**: Make script executable:
+
 ```bash
 chmod +x run_all_brop_tests.sh
 ```
@@ -276,7 +293,7 @@ Enable verbose logging for detailed debug information:
 # JavaScript tests
 DEBUG=* node comprehensive_brop_protocol_tests.js
 
-# Python tests  
+# Python tests
 python3 -c "import logging; logging.basicConfig(level=logging.DEBUG)" brop_integration_tests.py
 ```
 
@@ -284,12 +301,12 @@ python3 -c "import logging; logging.basicConfig(level=logging.DEBUG)" brop_integ
 
 ### Expected Performance
 
-| Metric | Target | Typical |
-|--------|--------|---------|
-| Connection Latency | < 100ms | ~50ms |
-| Command Response Time | < 500ms | ~200ms |
-| Throughput | > 50 msg/sec | ~100 msg/sec |
-| Concurrent Connections | > 10 | ~20 |
+| Metric                 | Target       | Typical      |
+| ---------------------- | ------------ | ------------ |
+| Connection Latency     | < 100ms      | ~50ms        |
+| Command Response Time  | < 500ms      | ~200ms       |
+| Throughput             | > 50 msg/sec | ~100 msg/sec |
+| Concurrent Connections | > 10         | ~20          |
 
 ### Performance Test Results
 
@@ -342,22 +359,22 @@ The performance tests measure:
 
 ```javascript
 class NewBROPTestSuite {
-    constructor() {
-        this.testResults = [];
-    }
+  constructor() {
+    this.testResults = [];
+  }
 
-    async runTest(testName, testFn) {
-        // Standard test execution with timeout and error handling
-    }
+  async runTest(testName, testFn) {
+    // Standard test execution with timeout and error handling
+  }
 
-    async testSpecificFeature() {
-        // Implement specific test logic
-        return { success: true, details: "..." };
-    }
+  async testSpecificFeature() {
+    // Implement specific test logic
+    return { success: true, details: "..." };
+  }
 
-    async runAllTests() {
-        // Execute all tests and generate report
-    }
+  async runAllTests() {
+    // Execute all tests and generate report
+  }
 }
 ```
 

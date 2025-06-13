@@ -1,6 +1,6 @@
 {
   "watch": [
-    "bridge-server/",
+    "bridge/",
     "background_bridge_client.js",
     "content.js",
     "manifest.json",
@@ -19,7 +19,7 @@
     "bridge-auto-reload.js",
     "start-dev.js"
   ],
-  "exec": "node bridge-server/bridge_server.js",
+  "exec": "node bridge/bridge_server.js",
   "restartable": "rs",
   "colours": true,
   "legacyWatch": false,

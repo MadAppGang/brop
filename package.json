@@ -20,8 +20,12 @@
     "clean": "rm -rf dist/ generated/",
     "install-protoc": "npm install -g protobufjs-cli",
     "setup": "echo 'BROP Extension setup complete. Load the extension in Chrome developer mode.'",
-    "bridge": "node bridge-server/bridge_server.js",
-    "start-bridge": "node bridge-server/bridge_server.js"
+    "bridge": "node bridge/bridge_server.js",
+    "start-bridge": "node bridge/bridge_server.js",
+    "mcp": "node mcp-server.js",
+    "start-mcp": "node mcp-server.js",
+    "test:mcp": "node test-mcp-modes.js",
+    "mcp:inspect": "npx @modelcontextprotocol/inspector bridge/mcp.js"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.270",

@@ -220,7 +220,7 @@ fi
 if [ "$services_running" = false ]; then
     echo -e "\n${YELLOW}⚠️  Some BROP services are not running.${NC}"
     echo "Please start the BROP bridge server before running tests:"
-    echo "  cd bridge-server && node bridge_server.js"
+    echo "  cd bridge && node bridge_server.js"
     echo ""
     echo "Or run tests that don't require live services with: $0 --offline"
     if [ "$1" != "--offline" ]; then

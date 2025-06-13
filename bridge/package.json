@@ -1,5 +1,5 @@
 {
-  "name": "brop-bridge-server",
+  "name": "brop-bridge",
   "version": "1.0.0",
   "description": "BROP Bridge Server - WebSocket middleware for Chrome extension automation",
   "main": "bridge_server.js",
@@ -10,7 +10,7 @@
   },
   "keywords": [
     "brop",
-    "chrome-extension", 
+    "chrome-extension",
     "websocket",
     "playwright",
     "cdp",

@@ -11,8 +11,8 @@
  */
 
 const WebSocket = require('ws');
-const http = require('http');
-const url = require('url');
+const http = require('node:http');
+const url = require('node:url');
 
 class TableLogger {
   constructor() {
@@ -347,7 +347,7 @@ class BROPBridgeServer {
       this.logger.logDisconnect('BROP', connectionDisplay);
       this.bropClients.delete(ws);
       this.clientConnections.delete(ws);
-      
+
       // Clean up event subscriptions for this client
       for (const [tabId, subscribers] of this.tabEventSubscriptions.entries()) {
         subscribers.delete(ws);
@@ -784,7 +784,7 @@ class BROPBridgeServer {
     if (tabId && this.tabEventSubscriptions.has(tabId)) {
       const subscribers = this.tabEventSubscriptions.get(tabId);
       const eventMessage = JSON.stringify(eventData);
-      
+
       let sentCount = 0;
       subscribers.forEach(client => {
         if (client.readyState === WebSocket.OPEN) {
@@ -792,9 +792,9 @@ class BROPBridgeServer {
           sentCount++;
         }
       });
-      
+
       this.logger.logSuccess('BROP', `event:${eventType}`, `tab:${tabId}`, `→${sentCount} subscribers`);
-      
+
       // Clean up subscriptions for closed tab events
       if (eventType === 'tab_closed' || eventType === 'tab_removed') {
         this.tabEventSubscriptions.delete(tabId);
