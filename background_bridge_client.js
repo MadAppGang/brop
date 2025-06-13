@@ -344,10 +344,10 @@ class BROPBridgeClient {
         console.error('Bridge connection error:', error);
         this.isConnected = false;
         this.connectionStatus = 'disconnected';
-        
+
         // Stop ping interval on error
         this.stopPingInterval();
-        
+
         this.broadcastStatusUpdate();
       };
 
@@ -387,9 +387,9 @@ class BROPBridgeClient {
 
   getTabIdFromTarget(targetId) {
     // Extract tab ID from target ID format: "tab_123456"
-    if (targetId && targetId.startsWith('tab_')) {
+    if (targetId?.startsWith('tab_')) {
       const tabId = Number.parseInt(targetId.replace('tab_', ''));
-      return isNaN(tabId) ? null : tabId;
+      return Number.isNaN(tabId) ? null : tabId;
     }
     return null;
   }
@@ -455,7 +455,7 @@ class BROPBridgeClient {
         if (this.pendingServerStatusRequests && this.pendingServerStatusRequests.has(message.id)) {
           const { resolve, reject } = this.pendingServerStatusRequests.get(message.id);
           this.pendingServerStatusRequests.delete(message.id);
-          
+
           if (message.success) {
             resolve(message.result);
           } else {
@@ -486,19 +486,19 @@ class BROPBridgeClient {
 
   async processBROPCommand(message) {
     const { id, method, params } = message;
-    
+
     console.log('🔧 DEBUG processBROPCommand:', {
       messageKeys: Object.keys(message),
       method: method,
       methodType: typeof method,
       fullMessage: JSON.stringify(message).substring(0, 200)
     });
-    
+
     if (!method) {
       console.error('🔧 ERROR: method is undefined!', {
         message: message
       });
-      
+
       this.sendToBridge({
         type: 'response',
         id: id,
@@ -557,18 +557,18 @@ class BROPBridgeClient {
   async handleGetConsoleLogs(params) {
     const { tabId } = params;
     let targetTab;
-    
+
     if (!tabId) {
       throw new Error('tabId is required. Use list_tabs to see available tabs or create_tab to create a new one.');
     }
-    
+
     // Get the specified tab
     try {
       targetTab = await chrome.tabs.get(tabId);
     } catch (error) {
       throw new Error(`Tab ${tabId} not found: ${error.message}`);
     }
-    
+
     // Check if tab is accessible
     if (targetTab.url.startsWith('chrome://') || targetTab.url.startsWith('chrome-extension://')) {
       throw new Error(`Cannot access chrome:// URL: ${targetTab.url}. Use a regular webpage tab.`);
@@ -578,7 +578,7 @@ class BROPBridgeClient {
 
     // Use runtime messaging approach (your suggested method) as the primary and only method
     const logs = await this.getRuntimeConsoleLogs(targetTab.id, params.limit || 100);
-    
+
     // Filter by level if specified
     let filteredLogs = logs;
     if (params.level) {
@@ -598,12 +598,12 @@ class BROPBridgeClient {
 
   async getRuntimeConsoleLogs(tabId, limit = 100) {
     console.log(`🔧 DEBUG getRuntimeConsoleLogs: Using runtime messaging for tab ${tabId}`);
-    
-    if (!tabId || isNaN(tabId)) {
+
+    if (!tabId || Number.isNaN(tabId)) {
       console.log(`🔧 DEBUG: Invalid tabId: ${tabId}, using extension logs fallback`);
       return this.getStoredConsoleLogs(limit);
     }
-    
+
     try {
       // Method 2: Try chrome.tabs.sendMessage to content script (if available)
       console.log(`🔧 DEBUG: Trying chrome.tabs.sendMessage to content script for tab ${tabId}...`);
@@ -613,17 +613,17 @@ class BROPBridgeClient {
         if (!tab) {
           throw new Error(`Tab ${tabId} does not exist`);
         }
-        
+
         if (tab.url.startsWith('chrome://') || tab.url.startsWith('chrome-extension://')) {
           throw new Error(`Cannot access chrome:// URL: ${tab.url}`);
         }
-        
+
         const response = await new Promise((resolve, reject) => {
           // Add timeout to prevent hanging
           const timeout = setTimeout(() => {
             reject(new Error('Content script messaging timeout'));
           }, 2000);
-          
+
           chrome.tabs.sendMessage(tabId, {
             type: 'GET_LOGS',
             tabId: tabId,
@@ -638,7 +638,7 @@ class BROPBridgeClient {
           });
         });
 
-        if (response && response.logs) {
+        if (response?.logs) {
           console.log(`🔧 DEBUG: Content script messaging returned ${response.logs.length} logs`);
           return response.logs;
         }
@@ -653,12 +653,12 @@ class BROPBridgeClient {
         func: (requestLimit) => {
           // Capture any available console logs
           const logs = [];
-          
+
           // Try to access console buffer if available
-          if (window.console && window.console._buffer) {
+          if (window.console?._buffer) {
             return window.console._buffer.slice(-requestLimit);
           }
-          
+
           // Create test logs to verify the system works
           const testLogs = [
             {
@@ -668,7 +668,7 @@ class BROPBridgeClient {
               source: 'executeScript_test'
             }
           ];
-          
+
           // Check for any errors in the page
           const errors = window.addEventListener ? [] : [{
             level: 'error',
@@ -676,7 +676,7 @@ class BROPBridgeClient {
             timestamp: Date.now(),
             source: 'executeScript_test'
           }];
-          
+
           return [...testLogs, ...errors];
         },
         args: [limit]
@@ -688,7 +688,7 @@ class BROPBridgeClient {
 
     } catch (error) {
       console.error(`🔧 DEBUG: Runtime messaging failed:`, error);
-      
+
       // Return empty array with metadata about the attempt
       return [{
         level: 'info',
@@ -712,18 +712,18 @@ class BROPBridgeClient {
   async handleExecuteConsole(params) {
     const { code, tabId } = params;
     let targetTab;
-    
+
     if (!tabId) {
       throw new Error('tabId is required. Use list_tabs to see available tabs or create_tab to create a new one.');
     }
-    
+
     // Get the specified tab
     try {
       targetTab = await chrome.tabs.get(tabId);
     } catch (error) {
       throw new Error(`Tab ${tabId} not found: ${error.message}`);
     }
-    
+
     // Check if tab is accessible
     if (targetTab.url.startsWith('chrome://') || targetTab.url.startsWith('chrome-extension://')) {
       throw new Error(`Cannot access chrome:// URL: ${targetTab.url}. Use a regular webpage tab.`);
@@ -768,11 +768,11 @@ class BROPBridgeClient {
 
   async handleGetScreenshot(params) {
     const { full_page = false, format = 'png', tabId } = params;
-    
+
     if (!tabId) {
       throw new Error('tabId is required. Use list_tabs to see available tabs or create_tab to create a new one.');
     }
-    
+
     // Get the specified tab
     let targetTab;
     try {
@@ -784,7 +784,7 @@ class BROPBridgeClient {
     // Make sure the tab is active (visible) for screenshot
     await chrome.tabs.update(tabId, { active: true });
     await chrome.windows.update(targetTab.windowId, { focused: true });
-    
+
     // Wait a moment for tab to become visible
     await new Promise(resolve => setTimeout(resolve, 200));
 
@@ -804,18 +804,18 @@ class BROPBridgeClient {
   async handleGetPageContent(params) {
     const { tabId } = params;
     let targetTab;
-    
+
     if (!tabId) {
       throw new Error('tabId is required. Use list_tabs to see available tabs or create_tab to create a new one.');
     }
-    
+
     // Get the specified tab
     try {
       targetTab = await chrome.tabs.get(tabId);
     } catch (error) {
       throw new Error(`Tab ${tabId} not found: ${error.message}`);
     }
-    
+
     // Check if tab is accessible
     if (targetTab.url.startsWith('chrome://') || targetTab.url.startsWith('chrome-extension://')) {
       throw new Error(`Cannot access chrome:// URL: ${targetTab.url}. Use a regular webpage tab.`);
@@ -838,27 +838,27 @@ class BROPBridgeClient {
 
   async handleNavigate(params) {
     const { url, tabId, create_new_tab = false, close_tab = false } = params;
-    
+
     let targetTab;
-    
+
     if (close_tab && tabId) {
       // Close the specified tab
       await chrome.tabs.remove(tabId);
       return { success: true, action: 'tab_closed', tabId: tabId };
     }
-    
+
     if (create_new_tab) {
       // Create a new tab
       const newTab = await chrome.tabs.create({ url: url || 'about:blank' });
-      return { 
-        success: true, 
+      return {
+        success: true,
         action: 'tab_created',
-        tabId: newTab.id, 
+        tabId: newTab.id,
         url: newTab.url,
-        title: newTab.title 
+        title: newTab.title
       };
     }
-    
+
     if (tabId) {
       // Use specified tab
       try {
@@ -877,12 +877,12 @@ class BROPBridgeClient {
 
     // Navigate the target tab
     await chrome.tabs.update(targetTab.id, { url });
-    
+
     // Get updated tab info
     const updatedTab = await chrome.tabs.get(targetTab.id);
-    
-    return { 
-      success: true, 
+
+    return {
+      success: true,
       action: 'navigated',
       tabId: updatedTab.id,
       url: updatedTab.url,
@@ -899,11 +899,11 @@ class BROPBridgeClient {
 
   async handleGetSimplifiedDOM(params) {
     const { tabId, format = 'markdown', enableDetailedResponse = false } = params;
-    
+
     if (!tabId) {
       throw new Error('tabId is required. Use list_tabs to see available tabs or create_tab to create a new one.');
     }
-    
+
     // Get the specified tab
     let targetTab;
     try {
@@ -911,7 +911,7 @@ class BROPBridgeClient {
     } catch (error) {
       throw new Error(`Tab ${tabId} not found: ${error.message}`);
     }
-    
+
     // Check if tab is accessible
     if (targetTab.url.startsWith('chrome://') || targetTab.url.startsWith('chrome-extension://')) {
       throw new Error(`Cannot access chrome:// URL: ${targetTab.url}. Use a regular webpage tab.`);
@@ -920,37 +920,37 @@ class BROPBridgeClient {
     console.log(`🔧 DEBUG handleGetSimplifiedDOM: Extracting ${format} from tab ${tabId} - "${targetTab.title}"`);
 
     try {
-      
+
       // First inject the appropriate library
       await chrome.scripting.executeScript({
         target: { tabId: tabId },
         files: format === 'html' ? ['readability.js'] : ['dom-to-semantic-markdown.js']
       });
-      
+
       // Now execute the extraction
       const results = await chrome.scripting.executeScript({
         target: { tabId: tabId },
         func: (options) => {
           const { format = 'markdown', enableDetailedResponse = false } = options;
-          
+
           try {
             console.log(`🔧 BROP: Starting ${format} extraction`);
-            
+
             if (format === 'html') {
               // HTML format: use Readability only
               if (typeof window.Readability === 'undefined') {
                 throw new Error('Readability library not loaded');
               }
-              
+
               // Clean document clone for processing
-              let documentClone = document.cloneNode(true);
+              const documentClone = document.cloneNode(true);
               documentClone.querySelectorAll('script').forEach(item => item.remove());
               documentClone.querySelectorAll('style').forEach(item => item.remove());
               documentClone.querySelectorAll('iframe').forEach(item => item.remove());
               documentClone.querySelectorAll('noscript').forEach(item => item.remove());
-              
+
               let content, stats;
-              
+
               if (enableDetailedResponse) {
                 // Use full document content
                 content = documentClone.body ? documentClone.body.innerHTML : documentClone.documentElement.innerHTML;
@@ -968,7 +968,7 @@ class BROPBridgeClient {
                 });
 
                 const article = reader.parse();
-                
+
                 if (!article || !article.content) {
                   throw new Error('No readable content found by Readability');
                 }
@@ -984,7 +984,7 @@ class BROPBridgeClient {
                   processed: true
                 };
               }
-              
+
               return {
                 html: content,
                 title: document.title,
@@ -992,51 +992,51 @@ class BROPBridgeClient {
                 timestamp: new Date().toISOString(),
                 stats: stats
               };
-              
-            } else {
-              // Markdown format: use dom-to-semantic-markdown
-              console.log('Checking for dom-to-semantic-markdown library...');
-              
-              // The bundled library should expose htmlToSMD globally
-              if (!window.htmlToSMD) {
-                throw new Error('dom-to-semantic-markdown library not loaded (htmlToSMD not found)');
-              }
-              
-              let contentElement;
-              
-              if (enableDetailedResponse) {
-                // Use full document body
-                contentElement = document.body || document.documentElement;
-              } else {
-                // Try to find main content area
-                contentElement = document.querySelector('main') || 
-                               document.querySelector('article') || 
-                               document.querySelector('.content') || 
-                               document.querySelector('#content') || 
-                               document.body || 
-                               document.documentElement;
-              }
-              
-              // Use the convertElementToMarkdown function from htmlToSMD
-              const markdown = window.htmlToSMD.convertElementToMarkdown(contentElement, {
-                refifyUrls: false,
-                includeMetadata: true,
-                debug: false
-              });
-              
-              return {
-                markdown: markdown,
-                title: document.title,
-                url: window.location.href,
-                timestamp: new Date().toISOString(),
-                stats: {
-                  source: enableDetailedResponse ? 'dom_to_semantic_markdown_full' : 'dom_to_semantic_markdown_main',
-                  markdownLength: markdown.length,
-                  processed: true
-                }
-              };
+
             }
-            
+
+            // Markdown format: use dom-to-semantic-markdown
+            console.log('Checking for dom-to-semantic-markdown library...');
+
+            // The bundled library should expose htmlToSMD globally
+            if (!window.htmlToSMD) {
+              throw new Error('dom-to-semantic-markdown library not loaded (htmlToSMD not found)');
+            }
+
+            let contentElement;
+
+            if (enableDetailedResponse) {
+              // Use full document body
+              contentElement = document.body || document.documentElement;
+            } else {
+              // Try to find main content area
+              contentElement = document.querySelector('main') ||
+                document.querySelector('article') ||
+                document.querySelector('.content') ||
+                document.querySelector('#content') ||
+                document.body ||
+                document.documentElement;
+            }
+
+            // Use the convertElementToMarkdown function from htmlToSMD
+            const markdown = window.htmlToSMD.convertElementToMarkdown(contentElement, {
+              refineUrls: false,
+              includeMetadata: true,
+              debug: false
+            });
+
+            return {
+              markdown: markdown,
+              title: document.title,
+              url: window.location.href,
+              timestamp: new Date().toISOString(),
+              stats: {
+                source: enableDetailedResponse ? 'dom_to_semantic_markdown_full' : 'dom_to_semantic_markdown_main',
+                markdownLength: markdown.length,
+                processed: true
+              }
+            };
+
           } catch (processingError) {
             console.error('🔧 BROP: Processing error:', processingError);
             return {
@@ -1050,16 +1050,16 @@ class BROPBridgeClient {
       });
 
       console.log(`🔧 DEBUG: executeScript completed, raw results:`, results);
-      
-      let result = results[0]?.result;
-      
+
+      const result = results[0]?.result;
+
       console.log(`🔧 DEBUG handleGetSimplifiedDOM: executeScript results:`, {
         resultsLength: results?.length,
         hasResult: !!result,
         resultType: typeof result,
         resultKeys: result ? Object.keys(result) : 'none'
       });
-      
+
       if (!result) {
         throw new Error('No result from content extraction');
       }
@@ -1090,21 +1090,21 @@ class BROPBridgeClient {
   // Tab Management Methods
   async handleCreateTab(params) {
     const { url = 'about:blank', active = true } = params;
-    
+
     try {
-      const newTab = await chrome.tabs.create({ 
+      const newTab = await chrome.tabs.create({
         url: url,
         active: active
       });
-      
+
       // Wait a moment for tab to initialize
       await new Promise(resolve => setTimeout(resolve, 500));
-      
+
       // Get updated tab info
       const tabInfo = await chrome.tabs.get(newTab.id);
-      
+
       console.log(`✅ Created new tab: ${newTab.id} - "${tabInfo.title}" - ${tabInfo.url}`);
-      
+
       return {
         success: true,
         tabId: tabInfo.id,
@@ -1121,15 +1121,15 @@ class BROPBridgeClient {
 
   async handleCloseTab(params) {
     const { tabId } = params;
-    
+
     if (!tabId) {
       throw new Error('tabId is required for close_tab');
     }
-    
+
     try {
       await chrome.tabs.remove(tabId);
       console.log(`✅ Closed tab: ${tabId}`);
-      
+
       return {
         success: true,
         tabId: tabId,
@@ -1143,10 +1143,10 @@ class BROPBridgeClient {
 
   async handleListTabs(params) {
     const { include_content = false } = params;
-    
+
     try {
       const allTabs = await chrome.tabs.query({});
-      
+
       const tabList = allTabs.map(tab => ({
         tabId: tab.id,
         url: tab.url,
@@ -1156,18 +1156,18 @@ class BROPBridgeClient {
         windowId: tab.windowId,
         index: tab.index,
         pinned: tab.pinned,
-        accessible: !tab.url.startsWith('chrome://') && 
-                   !tab.url.startsWith('chrome-extension://') &&
-                   !tab.url.startsWith('edge://') &&
-                   !tab.url.startsWith('about:') ||
-                   tab.url === 'about:blank'
+        accessible: !tab.url.startsWith('chrome://') &&
+          !tab.url.startsWith('chrome-extension://') &&
+          !tab.url.startsWith('edge://') &&
+          !tab.url.startsWith('about:') ||
+          tab.url === 'about:blank'
       }));
-      
+
       // Get active tab
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
+
       console.log(`📋 Listed ${tabList.length} tabs (active: ${activeTab?.id || 'none'})`);
-      
+
       return {
         success: true,
         tabs: tabList,
@@ -1183,23 +1183,23 @@ class BROPBridgeClient {
 
   async handleActivateTab(params) {
     const { tabId } = params;
-    
+
     if (!tabId) {
       throw new Error('tabId is required for activate_tab');
     }
-    
+
     try {
       // Get tab info first
       const tab = await chrome.tabs.get(tabId);
-      
+
       // Activate the tab
       await chrome.tabs.update(tabId, { active: true });
-      
+
       // Also focus the window containing the tab
       await chrome.windows.update(tab.windowId, { focused: true });
-      
+
       console.log(`✅ Activated tab: ${tabId} - "${tab.title}"`);
-      
+
       return {
         success: true,
         tabId: tabId,
@@ -1216,7 +1216,7 @@ class BROPBridgeClient {
   async handleGetServerStatus(params) {
     try {
       console.log('📊 Getting server status...');
-      
+
       // This command will be handled directly by the bridge server
       // and won't come back to the extension, but we need this handler
       // in case someone calls it directly through the extension
@@ -1399,7 +1399,7 @@ class BROPBridgeClient {
     // Fix undefined/null method names
     const safeMethod = method || 'unknown_method';
     const safeType = type || 'unknown_type';
-    
+
     const logEntry = {
       id: `log_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       timestamp: Date.now(),
@@ -1411,7 +1411,7 @@ class BROPBridgeClient {
       success: !error,
       duration: duration
     };
-    
+
     // Debug logging for undefined methods
     if (!method) {
       console.warn('🔧 WARNING: logCall received undefined method:', {
@@ -1457,16 +1457,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       });
       return;
     }
-    
+
     // Generate unique request ID
     const requestId = Date.now();
-    
+
     // Create a promise that will be resolved when we get the response
     const serverStatusPromise = new Promise((resolve, reject) => {
       // Store the response handler
       bropBridgeClient.pendingServerStatusRequests = bropBridgeClient.pendingServerStatusRequests || new Map();
       bropBridgeClient.pendingServerStatusRequests.set(requestId, { resolve, reject });
-      
+
       // Set timeout
       setTimeout(() => {
         if (bropBridgeClient.pendingServerStatusRequests.has(requestId)) {
@@ -1475,14 +1475,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
       }, 5000);
     });
-    
+
     // Send the request
     bropBridgeClient.sendToBridge({
       id: requestId,
       method: 'get_server_status',
       params: {}
     });
-    
+
     // Wait for response and send back to popup
     serverStatusPromise.then(result => {
       sendResponse({
@@ -1495,7 +1495,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         error: error.message
       });
     });
-    
+
     return true; // Keep message channel open for async response
   } else if (messageType === 'SET_ENABLED') {
     bropBridgeClient.enabled = message.enabled;
@@ -1504,14 +1504,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (messageType === 'GET_LOGS') {
     const limit = message.limit || 100;
     const tabId = message.tabId;
-    
+
     console.log(`🔧 DEBUG: Received GET_LOGS runtime message for tab ${tabId}`);
-    
+
     {
       // Return extension call logs with full original format
       const logs = bropBridgeClient.callLogs.slice(-limit);
       console.log(`🔧 DEBUG: No console messages for tab ${tabId}, returning ${logs.length} extension logs`);
-      sendResponse({ 
+      sendResponse({
         success: true,
         logs: logs.map(log => ({
           // Preserve original fields for popup display

@@ -1,28 +1,48 @@
 {
   "name": "@madappgang/brop-mcp",
-  "version": "1.0.0",
-  "description": "BROP Bridge Server - WebSocket middleware for Chrome extension automation",
-  "main": "mcp.js",
+  "version": "1.1.2",
+  "description": "Model Context Protocol server for Browser Remote Operations Protocol (BROP) - Control Chrome browser remotely via MCP",
+  "type": "module",
+  "main": "mcp-server.js",
   "bin": {
-    "brop-mcp-server": "mcp.js"
+    "brop-mcp-server": "mcp-server.js"
   },
+  "files": [
+    "mcp-server.js",
+    "bridge_server.js",
+    "README.md"
+  ],
   "scripts": {
     "start": "node bridge_server.js",
     "dev": "node bridge_server.js",
+    "mcp": "node mcp-server.js",
     "test": "echo \"No tests specified\" && exit 0"
   },
   "keywords": [
+    "mcp",
+    "model-context-protocol",
     "brop",
+    "browser-automation",
     "chrome-extension",
     "websocket",
-    "playwright",
-    "cdp",
+    "browser-control",
+    "remote-browser",
     "automation"
   ],
   "author": "BROP Team",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/madappgang/mcp-brop.git"
+  },
+  "homepage": "https://github.com/madappgang/mcp-brop#readme",
+  "bugs": {
+    "url": "https://github.com/madappgang/mcp-brop/issues"
+  },
   "dependencies": {
-    "ws": "^8.14.0"
+    "@modelcontextprotocol/sdk": "^1.12.2",
+    "ws": "^8.14.0",
+    "zod": "^3.25.64"
   },
   "engines": {
     "node": ">=18.0.0"

@@ -10,9 +10,9 @@
  * allowing external tools to control the browser through the extension.
  */
 
-const WebSocket = require('ws');
-const http = require('node:http');
-const url = require('node:url');
+import http from 'node:http';
+import url from 'node:url';
+import WebSocket, { WebSocketServer } from 'ws';
 
 class TableLogger {
   constructor(options = {}) {
@@ -173,7 +173,7 @@ class BROPBridgeServer {
       this.logger.printHeader();
 
       // Start BROP server (for BROP clients)
-      this.bropServer = new WebSocket.Server({
+      this.bropServer = new WebSocketServer({
         port: 9223,
         perMessageDeflate: false
       });
@@ -183,7 +183,7 @@ class BROPBridgeServer {
       this.log('🔧 BROP Server started on ws://localhost:9223');
 
       // Start Extension WebSocket server (extension connects as client)
-      this.extensionServer = new WebSocket.Server({
+      this.extensionServer = new WebSocketServer({
         port: 9224,
         perMessageDeflate: false
       });
@@ -335,7 +335,7 @@ class BROPBridgeServer {
     const connectionId = `conn-${++this.connectionCounter}`;
 
     // Extract client name from query parameters if provided
-    const url = require('url');
+    // url already imported at top
     const queryParams = url.parse(req.url, true).query;
     const clientName = queryParams.name || null;
 
@@ -419,7 +419,7 @@ class BROPBridgeServer {
           if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify(data));
             // Log BROP command result with connection display using stored command info
-            const cmdInfo = this.pendingCommandInfo && this.pendingCommandInfo.get(requestId);
+            const cmdInfo = this.pendingCommandInfo?.get(requestId);
             if (cmdInfo) {
               this.pendingCommandInfo.delete(requestId);
               if (data.success) {
@@ -801,12 +801,12 @@ class BROPBridgeServer {
       const eventMessage = JSON.stringify(eventData);
 
       let sentCount = 0;
-      subscribers.forEach(client => {
+      for (const client of subscribers) {
         if (client.readyState === WebSocket.OPEN) {
           client.send(eventMessage);
           sentCount++;
         }
-      });
+      }
 
       this.logger.logSuccess('BROP', `event:${eventType}`, `tab:${tabId}`, `→${sentCount} subscribers`);
 
@@ -827,11 +827,11 @@ class BROPBridgeServer {
 
   broadcastToBropClients(message) {
     const messageStr = JSON.stringify(message);
-    this.bropClients.forEach(client => {
+    for (const client of this.bropClients) {
       if (client.readyState === WebSocket.OPEN) {
         client.send(messageStr);
       }
-    });
+    }
   }
 
 
@@ -856,7 +856,7 @@ class BROPBridgeServer {
 // Main function
 async function main() {
   console.log('🌉 BROP Bridge Server (Node.js)');
-  console.log('=' + '='.repeat(50));
+  console.log(`=${'='.repeat(50)}`);
   console.log('Starting BROP bridge server...');
   console.log('');
   console.log('🔧 BROP Server: ws://localhost:9223 (for BROP clients)');
@@ -886,14 +886,15 @@ async function main() {
 
 // Check if we have required dependencies
 try {
-  require('ws');
+  // WebSocket already imported at top, just check if it exists
+  if (!WebSocket) throw new Error('WebSocket not available');
 } catch (error) {
   console.error('❌ Missing dependencies. Please run: npm install ws');
   process.exit(1);
 }
 
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   main();
 }
 
-module.exports = { BROPBridgeServer };
+export { BROPBridgeServer };

@@ -1,174 +1,226 @@
-# BROP Bridge Server
+# BROP MCP Server
 
-A WebSocket bridge server that enables communication between Chrome extensions and external automation tools like Playwright.
+Model Context Protocol server for Browser Remote Operations Protocol (BROP) - Control Chrome browser remotely via MCP tools.
 
-## Architecture
+## Overview
 
-The bridge server provides three WebSocket interfaces:
-
-```
-┌─────────────────┐   CDP Protocol   ┌──────────────────┐   WebSocket   ┌─────────────────┐
-│   Playwright    │ ◄─────────────► │  Bridge Server   │ ◄───────────► │ Chrome Extension│
-│   (CDP Client)  │   Port 9222     │                  │   Port 9224   │                 │
-└─────────────────┘                 │                  │               └─────────────────┘
-                                    │                  │
-┌─────────────────┐   BROP Protocol │                  │
-│   BROP Client   │ ◄─────────────► │                  │
-│                 │   Port 9223     │                  │
-└─────────────────┘                 └──────────────────┘
-```
-
-### Ports:
-
-- **9222**: CDP Server (for Playwright and other CDP clients)
-- **9223**: BROP Server (for custom BROP clients)  
-- **9224**: Extension Server (Chrome extension connects here as a client)
-- **9225**: HTTP Server (CDP discovery endpoints)
+The BROP MCP Server enables AI assistants to control Chrome browsers through the Model Context Protocol. It provides a comprehensive set of tools for browser automation including navigation, content extraction, JavaScript execution, and tab management.
 
 ## Installation
 
+### As NPX Executable (Recommended)
+
 ```bash
-npm install
+# Install globally
+npm install -g @madappgang/brop-mcp
+
+# Or use directly with npx
+npx @madappgang/brop-mcp
+```
+
+### From Source
+
+```bash
+git clone https://github.com/madappgang/mcp-brop.git
+cd mcp-brop/bridge
+pnpm install
 ```
 
 ## Usage
 
-### 1. Start the Bridge Server
+### 1. Add to Claude Desktop
 
-```bash
-npm start
-```
+Add the server to your Claude Desktop configuration:
 
-You should see:
-```
-🌉 BROP Bridge Server (Node.js)
-==================================================
-Starting multi-protocol bridge server...
-
-🎭 CDP Server: ws://localhost:9222 (for Playwright)
-🔧 BROP Server: ws://localhost:9223 (for BROP clients)
-🔌 Extension Server: ws://localhost:9224 (extension connects here)
-🌐 HTTP Server: http://localhost:9225 (CDP discovery)
-
-📡 Waiting for Chrome extension to connect...
-```
-
-### 2. Load the Chrome Extension
-
-- Load the BROP extension in Chrome
-- The extension will automatically connect to the bridge server
-- You should see: `🔌 Chrome extension connected`
-
-### 3. Use Playwright
-
-```python
-from playwright.async_api import async_playwright
-
-async with async_playwright() as p:
-    browser = await p.chromium.connect_over_cdp("ws://localhost:9222")
-    page = browser.contexts[0].pages[0]
-    await page.goto("https://example.com")
-    title = await page.title()
-    print(f"Page title: {title}")
-    await browser.close()
-```
-
-## How It Works
-
-1. **Chrome Extension** connects as a WebSocket client to port 9224
-2. **External tools** (Playwright, BROP clients) connect to ports 9222/9223
-3. **Bridge server** routes messages between the extension and external clients
-4. **Commands** are translated between CDP and BROP protocols as needed
-
-## Protocol Translation
-
-### CDP Commands → Extension
 ```json
-// CDP Input
 {
-  "id": 1,
-  "method": "Runtime.evaluate", 
-  "params": { "expression": "document.title" }
-}
-
-// Extension Format
-{
-  "type": "cdp_command",
-  "id": 1,
-  "method": "Runtime.evaluate",
-  "params": { "expression": "document.title" }
-}
-```
-
-### BROP Commands → Extension
-```json
-// BROP Input
-{
-  "id": "req_1",
-  "command": {
-    "type": "execute_console",
-    "params": { "code": "console.log('test')" }
-  }
-}
-
-// Extension Format  
-{
-  "type": "brop_command",
-  "id": "req_1", 
-  "command": {
-    "type": "execute_console",
-    "params": { "code": "console.log('test')" }
+  "mcpServers": {
+    "brop": {
+      "command": "npx",
+      "args": ["-y", "@madappgang/brop-mcp"]
+    }
   }
 }
 ```
 
-## Debugging
+### 2. Load Chrome Extension
 
-### Check Server Status
-```bash
-curl http://localhost:9225/json/version
+- Install the BROP Chrome extension
+- The extension will automatically connect when the MCP server starts
+
+### 3. Start Using BROP Tools
+
+The server provides these MCP tools:
+
+- `brop_navigate` - Navigate to URLs
+- `brop_get_page_content` - Get raw page content
+- `brop_get_simplified_content` - Get cleaned content (HTML/Markdown)
+- `brop_execute_script` - Run JavaScript
+- `brop_click_element` - Click elements
+- `brop_type_text` - Type into inputs
+- `brop_create_page` - Create new tabs
+- `brop_close_tab` - Close tabs
+- `brop_list_tabs` - List all tabs
+- `brop_activate_tab` - Switch tabs
+- `brop_get_server_status` - Check server status
+
+## Architecture
+
+The MCP server operates in two modes:
+
+### Server Mode (Default)
+- Starts BROP bridge servers on ports 9223/9224
+- Chrome extension connects directly
+- Full standalone operation
+
+### Relay Mode (Fallback)
+- Connects to existing BROP server
+- Used when port 9223 is already occupied
+- Relays commands through existing bridge
+
+```
+┌─────────────────┐   MCP Protocol   ┌──────────────────┐   WebSocket   ┌─────────────────┐
+│   Claude/AI     │ ◄─────────────► │   BROP MCP       │ ◄───────────► │ Chrome Extension│
+│   Assistant     │     STDIO       │   Server         │   Port 9224   │                 │
+└─────────────────┘                 └──────────────────┘               └─────────────────┘
 ```
 
-### Monitor Connections
-The server logs all connections and message routing:
+## Example Usage
+
+### Navigate and Extract Content
+
+```json
+// Navigate to a website
+{
+  "tool": "brop_navigate",
+  "arguments": {
+    "url": "https://example.com"
+  }
+}
+
+// Get simplified content as markdown
+{
+  "tool": "brop_get_simplified_content", 
+  "arguments": {
+    "tabId": 1,
+    "format": "markdown"
+  }
+}
 ```
-🔌 Chrome extension connected
-🎭 CDP client connected: /page/1
-🔧 BROP client connected
-🎭 CDP: Runtime.evaluate
-🔧 BROP: execute_console
+
+### Automate Form Filling
+
+```json
+// Type into search field
+{
+  "tool": "brop_type_text",
+  "arguments": {
+    "selector": "input[name='search']",
+    "text": "hello world"
+  }
+}
+
+// Click search button
+{
+  "tool": "brop_click_element",
+  "arguments": {
+    "selector": "button[type='submit']"
+  }
+}
+```
+
+### Execute Custom JavaScript
+
+```json
+{
+  "tool": "brop_execute_script",
+  "arguments": {
+    "script": "return document.title + ' - ' + window.location.href;"
+  }
+}
 ```
 
 ## Development
 
-### Start in Development Mode
+### Local Development
+
 ```bash
-npm run dev
+# Install dependencies
+pnpm install
+
+# Start MCP server
+pnpm run mcp
+
+# Test with MCP Inspector
+npx @modelcontextprotocol/inspector node mcp-server.js
 ```
 
+### Testing
+
+```bash
+# Start bridge server directly
+pnpm run dev
+
+# Run debug workflow
+pnpm run debug:workflow
+```
+
+## Configuration
+
 ### Environment Variables
-- `PORT_CDP=9222` - CDP server port
-- `PORT_BROP=9223` - BROP server port  
+
+- `PORT_BROP=9223` - BROP server port
 - `PORT_EXTENSION=9224` - Extension server port
-- `PORT_HTTP=9225` - HTTP discovery port
+
+### MCP Server Configuration
+
+The server supports standard MCP configuration options and can be customized through the MCP client configuration.
 
 ## Troubleshooting
 
 ### Extension Not Connecting
-1. Check that the extension is loaded in Chrome
-2. Verify the extension's WebSocket connection code
-3. Check browser console for connection errors
 
-### Playwright Connection Failed
-1. Ensure bridge server is running on port 9222
-2. Check that extension is connected to bridge
-3. Verify HTTP discovery endpoint: `curl http://localhost:9225/json`
+1. Ensure Chrome extension is loaded and active
+2. Check that WebSocket ports 9223/9224 are available
+3. Verify extension permissions in Chrome
 
-### BROP Client Issues
-1. Connect to `ws://localhost:9223` 
-2. Send test message to verify bridge routing
-3. Check server logs for message processing errors
+### MCP Connection Issues
+
+1. Test with MCP Inspector: `npx @modelcontextprotocol/inspector node mcp-server.js`
+2. Check STDIO transport is working properly
+3. Verify all dependencies are installed
+
+### Tool Execution Errors
+
+1. Use `brop_get_server_status` to check connection status
+2. Ensure target tab exists before executing commands
+3. Check browser console for JavaScript errors
+
+## API Reference
+
+### Tool Schemas
+
+All tools use Zod schema validation. See `mcp-server.js` for complete parameter definitions.
+
+### Return Format
+
+All tools return results in MCP-compatible format:
+
+```json
+{
+  "content": [
+    {
+      "type": "text", 
+      "text": "JSON stringified result"
+    }
+  ]
+}
+```
 
 ## License
 
-MIT License
+MIT License - see LICENSE file for details.
+
+## Contributing
+
+Contributions welcome! Please see contributing guidelines in the repository.
