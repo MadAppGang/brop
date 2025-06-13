@@ -7,7 +7,8 @@
     "tabs",
     "storage",
     "scripting",
-    "nativeMessaging"
+    "nativeMessaging",
+    "alarms"
   ],
   "icons": {
     "16": "icons/icon16.png",

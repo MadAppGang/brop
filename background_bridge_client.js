@@ -17,12 +17,17 @@ class BROPBridgeClient {
     this.extensionErrors = [];
     this.maxErrorEntries = 100;
 
+    // Keepalive mechanism
+    this.pingInterval = null;
+    this.pingIntervalSeconds = 10; // Ping every 10 seconds
+
     this.bridgeUrl = 'ws://localhost:9224'; // Extension server port
 
     this.messageHandlers = new Map();
     this.setupMessageHandlers();
     this.setupErrorHandlers();
     this.setupTabEventListeners();
+    this.setupKeepalive();
     this.loadSettings();
     this.connectToBridge();
   }
@@ -121,6 +126,75 @@ class BROPBridgeClient {
     console.error(`[BROP Error] ${type}: ${message}`, stack ? `\nStack: ${stack}` : '');
 
     this.saveSettings();
+  }
+
+  setupKeepalive() {
+    // Set up Chrome alarms API for keepalive (fallback)
+    chrome.alarms.onAlarm.addListener((alarm) => {
+      if (alarm.name === 'mcp-keepalive') {
+        console.log('🔔 Chrome alarms keepalive triggered');
+        this.checkMCPConnection();
+      }
+    });
+
+    // Create the alarm on startup
+    chrome.runtime.onInstalled.addListener(() => {
+      chrome.alarms.create('mcp-keepalive', {
+        periodInMinutes: 0.33 // Every 20 seconds (shorter than 30s idle limitation)
+      });
+      console.log('🔔 Chrome alarms keepalive created (20s interval)');
+    });
+
+    console.log('🔔 Keepalive mechanism set up');
+  }
+
+  checkMCPConnection() {
+    if (this.isConnected && this.bridgeSocket) {
+      // Send a ping to keep the connection alive
+      this.sendPing();
+    } else {
+      console.log('🔔 Connection check: not connected, attempting to reconnect');
+      this.connectToBridge();
+    }
+  }
+
+  sendPing() {
+    if (this.isConnected && this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
+      try {
+        this.bridgeSocket.send(JSON.stringify({
+          type: 'ping',
+          timestamp: Date.now(),
+          keepalive: true
+        }));
+        console.log('🏓 Sent keepalive ping');
+      } catch (error) {
+        console.error('Error sending ping:', error);
+        this.isConnected = false;
+        this.connectionStatus = 'disconnected';
+      }
+    }
+  }
+
+  startPingInterval() {
+    // Clear any existing interval
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+    }
+
+    // Start regular ping interval (10 seconds)
+    this.pingInterval = setInterval(() => {
+      this.sendPing();
+    }, this.pingIntervalSeconds * 1000);
+
+    console.log(`🏓 Started ping interval (${this.pingIntervalSeconds}s)`);
+  }
+
+  stopPingInterval() {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+      console.log('🏓 Stopped ping interval');
+    }
   }
 
   setupTabEventListeners() {
@@ -234,6 +308,9 @@ class BROPBridgeClient {
           this.reconnectTimer = null;
         }
 
+        // Start ping interval to keep connection alive
+        this.startPingInterval();
+
         // Send connection confirmation
         this.sendToBridge({
           type: 'extension_ready',
@@ -254,6 +331,9 @@ class BROPBridgeClient {
         this.connectionStatus = 'disconnected';
         this.bridgeSocket = null;
 
+        // Stop ping interval when disconnected
+        this.stopPingInterval();
+
         this.broadcastStatusUpdate();
 
         // Attempt to reconnect
@@ -264,6 +344,10 @@ class BROPBridgeClient {
         console.error('Bridge connection error:', error);
         this.isConnected = false;
         this.connectionStatus = 'disconnected';
+        
+        // Stop ping interval on error
+        this.stopPingInterval();
+        
         this.broadcastStatusUpdate();
       };
 
@@ -358,6 +442,11 @@ class BROPBridgeClient {
 
       if (messageType === 'welcome') {
         console.log('Bridge server welcome:', message.message);
+        return;
+      }
+
+      if (messageType === 'pong') {
+        console.log('🏓 Received pong from bridge server');
         return;
       }
 
