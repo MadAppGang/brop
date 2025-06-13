@@ -3,8 +3,7 @@
  * Test tab event subscription and event delivery
  */
 
-const { createPage } = require('./page-utils');
-const { createNamedBROPConnection } = require('./test-utils');
+const { createPage, createNamedBROPConnection } = require('./client');
 
 async function testTabEventDelivery() {
     console.log('🧪 Testing Tab Event Delivery');

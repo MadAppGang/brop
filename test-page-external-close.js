@@ -4,8 +4,7 @@
  * Validates that Page object properly detects external tab closure
  */
 
-const { createPage } = require('./page-utils');
-const { createNamedBROPConnection } = require('./test-utils');
+const { createPage, createNamedBROPConnection } = require('./client');
 
 async function testPageExternalClose() {
     console.log('🧪 Testing Page External Close Detection');

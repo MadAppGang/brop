@@ -1,4 +1,4 @@
-const { createPage } = require('../../page-utils');
+const { createPage } = require('../../client');
 
 async function testRuntimeMessaging() {
     console.log('📨 Testing Runtime Messaging Approach');

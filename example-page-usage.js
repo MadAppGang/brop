@@ -3,7 +3,7 @@
  * Example showing how to use the new Page class
  */
 
-const { createPage } = require('./page-utils');
+const { createPage } = require('./client');
 
 async function examplePageUsage() {
     console.log('🎯 Page Class Usage Example');

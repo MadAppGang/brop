@@ -3,7 +3,7 @@
  * Test only the subscription functionality without tab events
  */
 
-const { createNamedBROPConnection } = require('./test-utils');
+const { createNamedBROPConnection } = require('./client');
 
 async function testSubscriptionOnly() {
     console.log('🧪 Testing Tab Event Subscription Commands');

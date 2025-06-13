@@ -3,7 +3,7 @@
  * Test the Page utility class
  */
 
-const { createPage } = require('./page-utils');
+const { createPage } = require('./client');
 
 async function testPageUtils() {
     console.log('🧪 Testing Page Utils Class');

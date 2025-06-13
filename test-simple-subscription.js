@@ -3,7 +3,7 @@
  * Simple test to verify tab event subscription functionality
  */
 
-const { createPage } = require('./page-utils');
+const { createPage } = require('./client');
 
 async function testSimpleSubscription() {
     console.log('🧪 Testing Simple Tab Event Subscription');

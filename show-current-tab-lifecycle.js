@@ -4,8 +4,7 @@
  * (reactive detection vs proactive subscription)
  */
 
-const { createPage } = require('./page-utils');
-const { createNamedBROPConnection } = require('./test-utils');
+const { createPage, createNamedBROPConnection } = require('./client');
 
 async function showCurrentTabLifecycle() {
     console.log('🔍 Current Tab Lifecycle Detection in BROP');

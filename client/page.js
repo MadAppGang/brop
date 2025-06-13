@@ -5,7 +5,7 @@
  */
 
 const WebSocket = require('ws');
-const { createNamedBROPConnection } = require('./test-utils');
+const { createNamedBROPConnection } = require('./connection');
 
 class Page {
   constructor(ws, connectionName) {

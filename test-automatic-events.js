@@ -4,8 +4,7 @@
  * Shows how Page automatically subscribes to events and receives tab-specific notifications
  */
 
-const { createPage } = require('./page-utils');
-const { createNamedBROPConnection } = require('./test-utils');
+const { createPage, createNamedBROPConnection } = require('./client');
 
 async function testAutomaticEventSubscription() {
     console.log('🧪 Testing Automatic Tab Event Subscription');
