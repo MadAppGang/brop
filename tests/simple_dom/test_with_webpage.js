@@ -4,14 +4,18 @@
  */
 
 const WebSocket = require('ws');
+const { createNamedBROPConnection } = require('../../test-utils');
 
 async function testWithWebpage() {
     console.log('🌐 Testing BROP with Active Webpage');
     console.log('=' + '='.repeat(40));
-    console.log('📋 Step 1: Navigate to a webpage first...');
+    
+    let currentTabId = null;
+    
+    console.log('📋 Step 1: Getting a tab and navigating to webpage...');
     
     // First, let's navigate to a test page
-    const ws1 = new WebSocket('ws://localhost:9223');
+    const ws1 = createNamedBROPConnection('navigation');
     
     await new Promise((resolve, reject) => {
         let resolved = false;
@@ -19,29 +23,78 @@ async function testWithWebpage() {
         ws1.on('open', () => {
             console.log('✅ Connected to BROP server');
             
-            const navMessage = {
-                id: 'nav-test',
-                command: {
-                    type: 'navigate',
-                    url: 'https://example.com'
-                }
+            // First get available tabs
+            const tabsMessage = {
+                id: 'list-tabs',
+                method: 'list_tabs',
+                params: {}
             };
             
-            console.log('📤 Navigating to example.com...');
-            ws1.send(JSON.stringify(navMessage));
+            console.log('📤 Getting available tabs...');
+            ws1.send(JSON.stringify(tabsMessage));
         });
         
         ws1.on('message', (data) => {
             if (resolved) return;
-            resolved = true;
             
             try {
                 const response = JSON.parse(data.toString());
-                console.log('📥 Navigation response:', response.success ? 'SUCCESS' : `FAILED: ${response.error}`);
-                ws1.close();
-                resolve();
+                
+                if (response.id === 'list-tabs' && response.success) {
+                    const tabs = response.result.tabs || [];
+                    console.log(`📋 Found ${tabs.length} tabs`);
+                    
+                    // Find an accessible tab or create a new one
+                    const accessibleTab = tabs.find(tab => tab.accessible && !tab.url.includes('chrome://'));
+                    
+                    if (accessibleTab) {
+                        currentTabId = accessibleTab.tabId;
+                        console.log(`✅ Using existing tab ${currentTabId}: ${accessibleTab.title}`);
+                        
+                        // Navigate this tab to our test page
+                        const navMessage = {
+                            id: 'navigate-tab',
+                            method: 'navigate',
+                            params: {
+                                tabId: currentTabId,
+                                url: 'https://example.com'
+                            }
+                        };
+                        
+                        console.log('📤 Navigating to example.com...');
+                        ws1.send(JSON.stringify(navMessage));
+                    } else {
+                        // Create a new tab
+                        console.log('📤 Creating new tab...');
+                        const createMessage = {
+                            id: 'create-tab',
+                            method: 'create_tab',
+                            params: {
+                                url: 'https://example.com'
+                            }
+                        };
+                        ws1.send(JSON.stringify(createMessage));
+                    }
+                } else if (response.id === 'create-tab' && response.success) {
+                    currentTabId = response.result.tabId;
+                    console.log(`✅ Created new tab ${currentTabId}`);
+                    resolved = true;
+                    ws1.close();
+                    resolve();
+                } else if (response.id === 'navigate-tab' && response.success) {
+                    console.log('✅ Navigation successful');
+                    resolved = true;
+                    ws1.close();
+                    resolve();
+                } else {
+                    console.log(`❌ Error: ${response.error}`);
+                    resolved = true;
+                    ws1.close();
+                    reject(new Error(response.error));
+                }
             } catch (error) {
-                console.error('❌ Error parsing navigation response:', error.message);
+                console.error('❌ Error parsing response:', error.message);
+                resolved = true;
                 ws1.close();
                 reject(error);
             }
@@ -63,13 +116,18 @@ async function testWithWebpage() {
         }, 10000);
     });
     
+    if (!currentTabId) {
+        console.log('❌ Could not get or create a tab');
+        return;
+    }
+    
     // Wait a moment for page to load
     console.log('⏳ Waiting for page to load...');
     await new Promise(resolve => setTimeout(resolve, 3000));
     
     // Now test the simplified DOM feature
     console.log('\n📋 Step 2: Testing simplified DOM on webpage...');
-    const ws2 = new WebSocket('ws://localhost:9223');
+    const ws2 = createNamedBROPConnection('dom-test');
     
     await new Promise((resolve, reject) => {
         let resolved = false;
@@ -79,8 +137,9 @@ async function testWithWebpage() {
             
             const domMessage = {
                 id: 'test-dom-webpage',
-                command: {
-                    type: 'get_simplified_dom',
+                method: 'get_simplified_dom',
+                params: {
+                    tabId: currentTabId,
                     max_depth: 4,
                     include_hidden: false,
                     include_text_nodes: true,
@@ -165,7 +224,7 @@ async function testWithWebpage() {
     const commands = ['get_console_logs', 'get_screenshot', 'get_page_content'];
     
     for (const command of commands) {
-        const ws = new WebSocket('ws://localhost:9223');
+        const ws = createNamedBROPConnection(`test-${command}`);
         
         const result = await new Promise((resolve) => {
             let resolved = false;
@@ -173,7 +232,12 @@ async function testWithWebpage() {
             ws.on('open', () => {
                 const message = {
                     id: `test-${command}-webpage`,
-                    command: { type: command }
+                    method: command,
+                    params: {
+                        tabId: currentTabId,
+                        ...(command === 'get_console_logs' ? { limit: 5 } : {}),
+                        ...(command === 'get_screenshot' ? { format: 'png' } : {})
+                    }
                 };
                 ws.send(JSON.stringify(message));
             });

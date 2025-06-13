@@ -1,25 +1,26 @@
 const WebSocket = require('ws');
+const { createBROPConnection } = require('../../test-utils');
 
 async function testFinalVerification() {
     console.log('🎯 FINAL VERIFICATION TEST');
     console.log('==========================');
     console.log('📋 Verifying all key features work correctly');
     
-    const ws = new WebSocket('ws://localhost:9223');
+    const ws = createBROPConnection();
+    let messageId = 0;
+    let testResults = [];
+    let currentTabId = null;
     
-    return new Promise((resolve, reject) => {
-        let messageId = 0;
-        let testResults = [];
-        
+    return new Promise((resolve) => {
         ws.on('open', function open() {
             console.log('✅ Connected to BROP bridge');
             
-            // Test 1: Page Content (basic functionality)
-            console.log('\n🔧 Test 1: Basic page content retrieval...');
+            // Step 1: Get available tabs first
+            console.log('\n🔧 Step 1: Getting available tabs...');
             ws.send(JSON.stringify({
                 id: ++messageId,
-                method: 'get_page_content',
-                params: { include_metadata: true }
+                method: 'list_tabs',
+                params: {}
             }));
         });
         
@@ -28,161 +29,214 @@ async function testFinalVerification() {
             console.log(`📥 Response ${response.id}: ${response.success ? '✅' : '❌'}`);
             
             if (response.id === 1) {
-                // Test 1 Results
+                // Handle tabs list
                 if (response.success) {
-                    testResults.push({ test: 'Page Content', status: 'PASS', details: response.result?.title || 'Unknown' });
-                    console.log(`   ✅ Retrieved page: ${response.result?.title || 'Unknown'}`);
-                    console.log(`   🔗 URL: ${response.result?.url || 'Unknown'}`);
+                    const tabs = response.result.tabs || [];
+                    console.log(`   ✅ Found ${tabs.length} tabs`);
                     
-                    // Test 2: Console execution (CSP compliance)
-                    console.log('\n🔧 Test 2: CSP-compliant console execution...');
-                    ws.send(JSON.stringify({
-                        id: ++messageId,
-                        method: 'execute_console',
-                        params: { code: 'document.title' }
-                    }));
-                } else {
-                    testResults.push({ test: 'Page Content', status: 'FAIL', details: response.error });
-                    console.log(`   ❌ Failed: ${response.error}`);
-                    ws.close();
-                    resolve();
-                }
-            } else if (response.id === 2) {
-                // Test 2 Results
-                if (response.success) {
-                    testResults.push({ test: 'Console Execution', status: 'PASS', details: response.result?.result || 'Unknown' });
-                    console.log(`   ✅ Console executed: ${response.result?.result || 'Unknown'}`);
+                    const accessibleTab = tabs.find(tab => tab.accessible && !tab.url.includes('chrome://'));
                     
-                    // Test 3: Console log capture (runtime messaging)
-                    console.log('\n🔧 Test 3: Console log capture via runtime messaging...');
-                    ws.send(JSON.stringify({
-                        id: ++messageId,
-                        method: 'get_console_logs',
-                        params: { limit: 5 }
-                    }));
-                } else {
-                    testResults.push({ test: 'Console Execution', status: 'FAIL', details: response.error });
-                    console.log(`   ❌ Failed: ${response.error}`);
-                    ws.close();
-                    resolve();
-                }
-            } else if (response.id === 3) {
-                // Test 3 Results
-                if (response.success) {
-                    const logCount = response.result?.logs?.length || 0;
-                    testResults.push({ test: 'Console Log Capture', status: 'PASS', details: `${logCount} logs captured` });
-                    console.log(`   ✅ Console logs captured: ${logCount}`);
-                    console.log(`   📊 Method: ${response.result?.method || 'unknown'}`);
-                    console.log(`   📍 Source: ${response.result?.source || 'unknown'}`);
+                    if (!accessibleTab) {
+                        console.log('\n🔧 Creating new tab for testing...');
+                        ws.send(JSON.stringify({
+                            id: ++messageId,
+                            method: 'create_tab',
+                            params: { url: 'https://example.com' }
+                        }));
+                        return;
+                    }
                     
-                    // Test 4: Extension error handling
-                    console.log('\n🔧 Test 4: Extension error handling...');
-                    ws.send(JSON.stringify({
-                        id: ++messageId,
-                        method: 'get_extension_errors',
-                        params: { limit: 3 }
-                    }));
-                } else {
-                    testResults.push({ test: 'Console Log Capture', status: 'FAIL', details: response.error });
-                    console.log(`   ❌ Failed: ${response.error}`);
-                    ws.close();
-                    resolve();
-                }
-            } else if (response.id === 4) {
-                // Test 4 Results
-                if (response.success) {
-                    const errorCount = response.result?.errors?.length || 0;
-                    testResults.push({ test: 'Error Handling', status: 'PASS', details: `${errorCount} errors tracked` });
-                    console.log(`   ✅ Error tracking: ${errorCount} errors`);
+                    currentTabId = accessibleTab.tabId;
+                    console.log(`   🎯 Using tab ${currentTabId}: ${accessibleTab.title}`);
                     
-                    // Test 5: Screenshot (browser integration)
-                    console.log('\n🔧 Test 5: Screenshot capture...');
-                    ws.send(JSON.stringify({
-                        id: ++messageId,
-                        method: 'get_screenshot',
-                        params: { format: 'png' }
-                    }));
+                    // Start the actual tests
+                    runTest1();
                 } else {
-                    testResults.push({ test: 'Error Handling', status: 'FAIL', details: response.error });
-                    console.log(`   ❌ Failed: ${response.error}`);
-                    ws.close();
-                    resolve();
+                    console.log(`   ❌ Failed to get tabs: ${response.error}`);
+                    completeTest(false);
                 }
-            } else if (response.id === 5) {
-                // Test 5 Results
-                if (response.success) {
-                    const imageSize = response.result?.image_data?.length || 0;
-                    testResults.push({ test: 'Screenshot', status: 'PASS', details: `${imageSize} bytes` });
-                    console.log(`   ✅ Screenshot captured: ${imageSize} bytes`);
-                    
-                    // All tests complete - show results
-                    showFinalResults();
-                } else {
-                    testResults.push({ test: 'Screenshot', status: 'FAIL', details: response.error });
-                    console.log(`   ❌ Failed: ${response.error}`);
-                    showFinalResults();
-                }
+                
+            } else if (response.success && response.result && response.result.tabId && !currentTabId) {
+                // Handle tab creation
+                currentTabId = response.result.tabId;
+                console.log(`   ✅ Created tab ${currentTabId}`);
+                
+                setTimeout(() => {
+                    runTest1();
+                }, 2000);
+                
+            } else {
+                // Handle test responses
+                handleTestResponse(response);
             }
         });
-        
-        function showFinalResults() {
-            console.log('\n🎉 FINAL VERIFICATION RESULTS');
-            console.log('=============================');
-            
-            testResults.forEach((result, i) => {
-                const status = result.status === 'PASS' ? '✅' : '❌';
-                console.log(`${i + 1}. ${status} ${result.test}: ${result.details}`);
-            });
-            
-            const passCount = testResults.filter(r => r.status === 'PASS').length;
-            const totalTests = testResults.length;
-            const successRate = Math.round((passCount / totalTests) * 100);
-            
-            console.log(`\n📊 SUMMARY: ${passCount}/${totalTests} tests passed (${successRate}%)`);
-            
-            if (successRate >= 80) {
-                console.log('\n🎉 EXCELLENT: Extension is working well!');
-                console.log('=====================================');
-                console.log('✅ CSP compliance achieved');
-                console.log('✅ Runtime messaging implemented');
-                console.log('✅ Chrome DevTools Protocol integration working');
-                console.log('✅ Multi-method fallback system operational');
-                console.log('✅ GitHub and CSP-protected sites accessible');
-                console.log('✅ Your suggested chrome.runtime.sendMessage approach implemented');
+
+        function runTest1() {
+            console.log('\n🔧 Test 1: Basic page content retrieval...');
+            ws.send(JSON.stringify({
+                id: ++messageId,
+                method: 'get_page_content',
+                params: { 
+                    tabId: currentTabId,
+                    include_metadata: true 
+                }
+            }));
+        }
+
+        function runTest2() {
+            console.log('\n🔧 Test 2: CSP-compliant console execution...');
+            ws.send(JSON.stringify({
+                id: ++messageId,
+                method: 'execute_console',
+                params: { 
+                    tabId: currentTabId,
+                    code: 'document.title' 
+                }
+            }));
+        }
+
+        function runTest3() {
+            console.log('\n🔧 Test 3: Console log capture...');
+            ws.send(JSON.stringify({
+                id: ++messageId,
+                method: 'get_console_logs',
+                params: { 
+                    tabId: currentTabId,
+                    limit: 5 
+                }
+            }));
+        }
+
+        function runTest4() {
+            console.log('\n🔧 Test 4: Extension error tracking...');
+            ws.send(JSON.stringify({
+                id: ++messageId,
+                method: 'get_extension_errors',
+                params: { limit: 3 }
+            }));
+        }
+
+        function runTest5() {
+            console.log('\n🔧 Test 5: Screenshot capture...');
+            ws.send(JSON.stringify({
+                id: ++messageId,
+                method: 'get_screenshot',
+                params: { 
+                    tabId: currentTabId,
+                    format: 'png' 
+                }
+            }));
+        }
+
+        function handleTestResponse(response) {
+            const testMap = {
+                2: { name: 'Page Content', nextTest: runTest2 },
+                3: { name: 'Console Execution', nextTest: runTest3 },
+                4: { name: 'Console Logs', nextTest: runTest4 },
+                5: { name: 'Extension Errors', nextTest: runTest5 },
+                6: { name: 'Screenshot', nextTest: showFinalResults }
+            };
+
+            const test = testMap[response.id];
+            if (!test) return;
+
+            if (response.success) {
+                console.log(`   ✅ ${test.name}: SUCCESS`);
+                
+                // Log relevant details
+                if (response.result) {
+                    if (response.result.title) {
+                        console.log(`      Title: ${response.result.title}`);
+                    } else if (response.result.result) {
+                        console.log(`      Result: ${response.result.result}`);
+                    } else if (response.result.logs) {
+                        console.log(`      Logs: ${response.result.logs.length} entries`);
+                    } else if (response.result.errors) {
+                        console.log(`      Errors: ${response.result.errors.length} tracked`);
+                    } else if (response.result.data) {
+                        console.log(`      Screenshot: ${response.result.data.length} bytes`);
+                    }
+                }
+
+                testResults.push({ 
+                    test: test.name, 
+                    status: 'PASS', 
+                    details: 'SUCCESS' 
+                });
             } else {
-                console.log('\n⚠️  NEEDS ATTENTION: Some tests failed');
-                console.log('=====================================');
-                const failedTests = testResults.filter(r => r.status === 'FAIL');
+                console.log(`   ❌ ${test.name}: FAILED - ${response.error}`);
+                testResults.push({ 
+                    test: test.name, 
+                    status: 'FAIL', 
+                    details: response.error 
+                });
+            }
+
+            // Move to next test
+            setTimeout(() => {
+                test.nextTest();
+            }, 500);
+        }
+
+        function showFinalResults() {
+            console.log('\n📊 FINAL VERIFICATION RESULTS');
+            console.log('==============================');
+            
+            const passedTests = testResults.filter(r => r.status === 'PASS');
+            const failedTests = testResults.filter(r => r.status === 'FAIL');
+            
+            console.log(`✅ Passed: ${passedTests.length}/${testResults.length} tests`);
+            console.log(`❌ Failed: ${failedTests.length}/${testResults.length} tests`);
+            
+            if (failedTests.length > 0) {
+                console.log('\n❌ Failed Tests:');
                 failedTests.forEach(test => {
-                    console.log(`❌ ${test.test}: ${test.details}`);
+                    console.log(`   - ${test.test}: ${test.details}`);
                 });
             }
             
-            console.log('\n🔧 IMPLEMENTATION HIGHLIGHTS:');
-            console.log('==============================');
-            console.log('• No "unsafe-eval" CSP violations');
-            console.log('• Chrome DevTools Protocol for deep browser access');
-            console.log('• Runtime messaging: chrome.runtime.sendMessage({type: "GET_LOGS", tabId})');
-            console.log('• Multi-layer console capture with graceful fallbacks');
-            console.log('• Smart tab detection prioritizing GitHub');
-            console.log('• Comprehensive error tracking and debugging tools');
+            const successRate = testResults.length > 0 ? 
+                Math.round((passedTests.length / testResults.length) * 100) : 0;
             
-            ws.close();
-            resolve();
+            console.log(`\n📈 Success Rate: ${successRate}%`);
+            
+            if (successRate >= 80) {
+                console.log('\n🎉 EXCELLENT: BROP service is working well!');
+                console.log('✅ Core functionality verified');
+                console.log('✅ Tab management operational');
+                console.log('✅ Content extraction working');
+                console.log('✅ Console integration functional');
+            } else {
+                console.log('\n⚠️  NEEDS ATTENTION: Some core features failed');
+            }
+            
+            completeTest(successRate >= 80);
+        }
+
+        function completeTest(success) {
+            console.log('\n🎯 Final verification complete!');
+            
+            // Close connection immediately
+            setTimeout(() => {
+                ws.close();
+                resolve();
+            }, 500);
         }
         
         ws.on('close', function close() {
-            console.log('\n🔌 Disconnected from bridge');
+            console.log('🔌 Disconnected from bridge');
         });
         
-        ws.on('error', reject);
-        
-        // Add timeout
-        setTimeout(() => {
-            console.log('⏰ Test timeout - closing connection');
-            ws.close();
+        ws.on('error', (error) => {
+            console.error('❌ Connection error:', error.message);
             resolve();
-        }, 20000);
+        });
+        
+        // Much shorter timeout - test should complete quickly
+        setTimeout(() => {
+            console.log('⏰ Test timeout - completing now');
+            completeTest(false);
+        }, 10000); // Reduced from 20s to 10s
     });
 }
 

@@ -4,6 +4,7 @@
  */
 
 const WebSocket = require('ws');
+const { createNamedBROPConnection } = require('../../test-utils');
 
 async function testSimplifiedDOMClean() {
     console.log('🌳 Clean Test: BROP Simplified DOM Feature');
@@ -11,30 +12,67 @@ async function testSimplifiedDOMClean() {
     
     // Navigate to a test page
     console.log('📋 Step 1: Navigate to demo page...');
-    const ws1 = new WebSocket('ws://localhost:9223');
+    const ws1 = createNamedBROPConnection('navigation');
     
     await new Promise((resolve) => {
         let resolved = false;
         
         ws1.on('open', () => {
-            const navMessage = {
-                id: 'nav-clean-test',
-                command: {
-                    type: 'navigate',
-                    url: 'https://example.com'
-                }
+            // First get tabs
+            const tabsMessage = {
+                id: 'get-tabs',
+                method: 'list_tabs',
+                params: {}
             };
-            ws1.send(JSON.stringify(navMessage));
+            ws1.send(JSON.stringify(tabsMessage));
         });
         
+        let currentTabId = null;
         ws1.on('message', (data) => {
             if (resolved) return;
-            resolved = true;
             
             const response = JSON.parse(data.toString());
-            console.log(`   ✅ Navigation: ${response.success ? 'SUCCESS' : `FAILED: ${response.error}`}`);
-            ws1.close();
-            resolve();
+            
+            if (response.id === 'get-tabs' && response.success) {
+                const tabs = response.result.tabs || [];
+                const accessibleTab = tabs.find(tab => tab.accessible && !tab.url.includes('chrome://'));
+                
+                if (!accessibleTab) {
+                    // Create a new tab
+                    const createMessage = {
+                        id: 'create-tab',
+                        method: 'create_tab',
+                        params: { url: 'https://example.com' }
+                    };
+                    ws1.send(JSON.stringify(createMessage));
+                    return;
+                }
+                
+                currentTabId = accessibleTab.tabId;
+                // Navigate existing tab
+                const navMessage = {
+                    id: 'nav-clean-test',
+                    method: 'navigate',
+                    params: {
+                        tabId: currentTabId,
+                        url: 'https://example.com'
+                    }
+                };
+                ws1.send(JSON.stringify(navMessage));
+                
+            } else if (response.id === 'create-tab' && response.success) {
+                currentTabId = response.result.tabId;
+                resolved = true;
+                console.log(`   ✅ Created new tab: SUCCESS`);
+                ws1.close();
+                resolve();
+                
+            } else if (response.id === 'nav-clean-test') {
+                resolved = true;
+                console.log(`   ✅ Navigation: ${response.success ? 'SUCCESS' : `FAILED: ${response.error}`}`);
+                ws1.close();
+                resolve();
+            }
         });
         
         setTimeout(() => {
@@ -50,11 +88,50 @@ async function testSimplifiedDOMClean() {
     console.log('   ⏳ Waiting for page to load...');
     await new Promise(resolve => setTimeout(resolve, 3000));
     
+    // Get current tab ID for DOM tests
+    let testTabId = null;
+    const wsTab = createNamedBROPConnection('get-current-tab');
+    
+    await new Promise((resolve) => {
+        wsTab.on('open', () => {
+            wsTab.send(JSON.stringify({
+                id: 'get-current-tabs',
+                method: 'list_tabs',
+                params: {}
+            }));
+        });
+        
+        wsTab.on('message', (data) => {
+            const response = JSON.parse(data.toString());
+            if (response.success) {
+                const tabs = response.result.tabs || [];
+                const accessibleTab = tabs.find(tab => tab.accessible && !tab.url.includes('chrome://'));
+                if (accessibleTab) {
+                    testTabId = accessibleTab.tabId;
+                    console.log(`   ✅ Found test tab: ${testTabId}`);
+                }
+            }
+            wsTab.close();
+            resolve();
+        });
+        
+        setTimeout(() => {
+            wsTab.close();
+            resolve();
+        }, 3000);
+    });
+    
+    if (!testTabId) {
+        console.log('   ❌ No accessible tab found for DOM testing');
+        return;
+    }
+    
     // Test simplified DOM with different configurations
     const testConfigs = [
         {
             name: 'Basic DOM Tree',
             params: {
+                tabId: testTabId,
                 max_depth: 3,
                 include_hidden: false
             }
@@ -62,6 +139,7 @@ async function testSimplifiedDOMClean() {
         {
             name: 'Detailed DOM Tree',
             params: {
+                tabId: testTabId,
                 max_depth: 4,
                 include_hidden: false,
                 include_text_nodes: true,
@@ -71,6 +149,7 @@ async function testSimplifiedDOMClean() {
         {
             name: 'Shallow DOM Tree',
             params: {
+                tabId: testTabId,
                 max_depth: 2,
                 include_hidden: false,
                 include_text_nodes: false
@@ -82,7 +161,7 @@ async function testSimplifiedDOMClean() {
         const config = testConfigs[i];
         console.log(`\n📋 Step ${i + 2}: Testing ${config.name}...`);
         
-        const ws = new WebSocket('ws://localhost:9223');
+        const ws = createNamedBROPConnection(`config-${i}`);
         
         await new Promise((resolve) => {
             let resolved = false;
@@ -90,8 +169,8 @@ async function testSimplifiedDOMClean() {
             ws.on('open', () => {
                 const domMessage = {
                     id: `test-dom-config-${i}`,
-                    command: {
-                        type: 'get_simplified_dom',
+                    method: 'get_simplified_dom',
+                    params: {
                         ...config.params
                     }
                 };

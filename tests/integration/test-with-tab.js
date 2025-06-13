@@ -1,11 +1,12 @@
 const WebSocket = require('ws');
+const { createBROPConnection } = require('../../test-utils');
 
 async function testWithRealTab() {
     console.log('🧪 BROP Test with Real Tab');
     console.log('==========================');
     console.log('📋 Creating test tab and running comprehensive tests');
     
-    const ws = new WebSocket('ws://localhost:9223');
+    const ws = createBROPConnection();
     let testTabId = null;
     
     return new Promise((resolve, reject) => {

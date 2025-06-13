@@ -279,8 +279,8 @@ class BROPProtocolTestSuite {
             ws.on('open', () => {
                 const message = {
                     id: this.getNextMessageId(),
-                    command: {
-                        type: 'get_console_logs',
+                    method: 'get_console_logs',
+                    params: {
                         limit: 10
                     }
                 };
@@ -311,8 +311,8 @@ class BROPProtocolTestSuite {
             ws.on('open', () => {
                 const message = {
                     id: this.getNextMessageId(),
-                    command: {
-                        type: 'get_screenshot',
+                    method: 'get_screenshot',
+                    params: {
                         format: 'png',
                         quality: 80
                     }

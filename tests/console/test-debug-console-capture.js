@@ -4,6 +4,7 @@
  */
 
 const WebSocket = require('ws');
+const { createBROPConnection } = require('../../test-utils');
 
 async function testDebugConsoleCapture() {
     console.log('🔍 Debug Console Capture Test');
@@ -12,54 +13,59 @@ async function testDebugConsoleCapture() {
     console.log('👀 Please keep Chrome DevTools Console open');
     console.log('');
 
-    const ws = new WebSocket('ws://localhost:9223');
+    const ws = createBROPConnection();
     let requestId = 1;
+    let currentTabId = null;
 
     return new Promise((resolve) => {
         ws.on('open', () => {
             console.log('✅ Connected to BROP bridge');
 
-            // Navigate to GitHub again
-            console.log('\n📍 STEP 1: Navigating to GitHub...');
-            const navCommand = {
+            // Step 1: Get available tabs first
+            console.log('\n📍 STEP 1: Getting available tabs...');
+            const tabsCommand = {
                 id: requestId++,
-                command: {
-                    type: 'navigate',
-                    params: { url: 'https://github.com' }
-                }
+                method: 'list_tabs',
+                params: {}
             };
-            ws.send(JSON.stringify(navCommand));
+            ws.send(JSON.stringify(tabsCommand));
 
             // Install console capture with debug info
             setTimeout(() => {
-                console.log('\n📍 STEP 2: Installing console capture with debug info...');
-                const captureCommand = {
-                    id: requestId++,
-                    command: {
-                        type: 'get_console_logs',
-                        params: { limit: 10 }
-                    }
-                };
-                ws.send(JSON.stringify(captureCommand));
+                if (currentTabId) {
+                    console.log('\n📍 STEP 3: Installing console capture with debug info...');
+                    const captureCommand = {
+                        id: requestId++,
+                        method: 'get_console_logs',
+                        params: { 
+                            tabId: currentTabId,
+                            limit: 10 
+                        }
+                    };
+                    ws.send(JSON.stringify(captureCommand));
+                }
             }, 4000);
 
             // Wait longer for GitHub to load and generate errors
             setTimeout(() => {
-                console.log('\n📍 STEP 3: Waiting for GitHub console errors to appear...');
+                console.log('\n📍 STEP 4: Waiting for GitHub console errors to appear...');
                 console.log('   ⏰ GitHub should be generating font CSP errors now...');
             }, 8000);
 
             // Get console logs again with debug info
             setTimeout(() => {
-                console.log('\n📍 STEP 4: Getting console logs with debug info...');
-                const debugLogsCommand = {
-                    id: requestId++,
-                    command: {
-                        type: 'get_console_logs',
-                        params: { limit: 50 }
-                    }
-                };
-                ws.send(JSON.stringify(debugLogsCommand));
+                if (currentTabId) {
+                    console.log('\n📍 STEP 5: Getting console logs with debug info...');
+                    const debugLogsCommand = {
+                        id: requestId++,
+                        method: 'get_console_logs',
+                        params: { 
+                            tabId: currentTabId,
+                            limit: 50 
+                        }
+                    };
+                    ws.send(JSON.stringify(debugLogsCommand));
+                }
             }, 12000);
 
             // Close
@@ -76,13 +82,55 @@ async function testDebugConsoleCapture() {
                 const message = JSON.parse(data);
                 console.log(`📥 Response ${message.id}:`, message.success ? '✅' : '❌');
                 
-                if (message.success && message.result) {
+                if (message.id === 1 && message.success) {
+                    // Handle tabs list response
+                    const tabs = message.result.tabs || [];
+                    console.log(`   ✅ Found ${tabs.length} tabs`);
+                    
+                    const accessibleTab = tabs.find(tab => tab.accessible && !tab.url.includes('chrome://'));
+                    
+                    if (!accessibleTab) {
+                        console.log('\n🔧 Creating new tab for GitHub testing...');
+                        const createTabCommand = {
+                            id: requestId++,
+                            method: 'create_tab',
+                            params: { url: 'https://github.com' }
+                        };
+                        ws.send(JSON.stringify(createTabCommand));
+                        return;
+                    }
+                    
+                    currentTabId = accessibleTab.tabId;
+                    console.log(`   🎯 Using tab ${currentTabId}: ${accessibleTab.title}`);
+                    
+                    // Navigate to GitHub
+                    console.log('\n📍 STEP 2: Navigating to GitHub...');
+                    const navCommand = {
+                        id: requestId++,
+                        method: 'navigate',
+                        params: { 
+                            tabId: currentTabId,
+                            url: 'https://github.com' 
+                        }
+                    };
+                    ws.send(JSON.stringify(navCommand));
+                    
+                } else if (message.success && message.result && message.result.tabId) {
+                    // Handle tab creation response
+                    currentTabId = message.result.tabId;
+                    console.log(`   ✅ Created new tab ${currentTabId}`);
+                    
+                    // No need to navigate since create_tab already navigated
+                    
+                } else if (message.success && message.result) {
                     switch (message.id) {
-                        case 1:
+                        case 2:
+                        case 3:
                             console.log('   ✅ Navigation to GitHub completed');
                             break;
                             
-                        case 2:
+                        case 3:
+                        case 4:
                             console.log('   ✅ Console capture installed');
                             
                             if (message.result.debug_info) {
@@ -104,7 +152,8 @@ async function testDebugConsoleCapture() {
                             }
                             break;
                             
-                        case 3:
+                        case 4:
+                        case 5:
                             console.log(`   ✅ Retrieved ${message.result.logs.length} console logs`);
                             
                             if (message.result.debug_info) {

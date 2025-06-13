@@ -5,6 +5,7 @@
  */
 
 const WebSocket = require('ws');
+const { createBROPConnection } = require('../../test-utils');
 
 let messageId = 0;
 
@@ -17,7 +18,7 @@ async function clearExtensionData() {
     try {
         console.log('📋 Connecting to BROP bridge...');
         
-        ws = new WebSocket('ws://localhost:9223');
+        ws = createBROPConnection();
         
         await new Promise((resolve, reject) => {
             ws.on('open', resolve);

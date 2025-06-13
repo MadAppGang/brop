@@ -1,10 +1,11 @@
 const WebSocket = require('ws');
+const { createBROPConnection } = require('../../test-utils');
 
 async function testLibraryLoad() {
     console.log('🧪 Library Loading Test');
     console.log('======================');
     
-    const ws = new WebSocket('ws://localhost:9223');
+    const ws = createBROPConnection();
     
     return new Promise((resolve, reject) => {
         let messageId = 0;

@@ -1,4 +1,5 @@
 const WebSocket = require('ws');
+const { createBROPConnection } = require('../../test-utils');
 
 async function testNativeConsoleLogs() {
     console.log('🎯 Testing Native Console Log Capture');
@@ -15,33 +16,58 @@ async function testNativeConsoleLogs() {
     console.log('⏰ You have 15 seconds to add console messages...');
     console.log('');
     
-    const ws = new WebSocket('ws://localhost:9223');
+    const ws = createBROPConnection();
     
     return new Promise((resolve, reject) => {
         let messageId = 0;
+        let currentTabId = null;
         
         ws.on('open', function open() {
             console.log('✅ Connected to BROP bridge');
             
-            // Give user time to manually add console messages
-            console.log('⏳ Waiting 15 seconds for you to add console messages...');
-            setTimeout(() => {
-                console.log('\n📜 Now capturing console logs...');
-                ws.send(JSON.stringify({
-                    id: ++messageId,
-                    method: 'get_console_logs',
-                    params: { 
-                        limit: 50
-                    }
-                }));
-            }, 15000);
+            // First get available tabs
+            console.log('📋 Getting available tabs...');
+            ws.send(JSON.stringify({
+                id: ++messageId,
+                method: 'list_tabs',
+                params: {}
+            }));
         });
         
         ws.on('message', function message(data) {
             const response = JSON.parse(data);
             console.log(`📥 Response ${response.id}: ${response.success ? '✅' : '❌'}`);
             
-            if (response.id === 1) {
+            if (response.id === 1 && response.success) {
+                // Handle tabs list
+                const tabs = response.result.tabs || [];
+                console.log(`📋 Found ${tabs.length} tabs`);
+                
+                const accessibleTab = tabs.find(tab => tab.accessible && !tab.url.includes('chrome://'));
+                
+                if (accessibleTab) {
+                    currentTabId = accessibleTab.tabId;
+                    console.log(`✅ Using tab ${currentTabId}: ${accessibleTab.title}`);
+                    
+                    // Give user time to manually add console messages
+                    console.log('⏳ Waiting 15 seconds for you to add console messages...');
+                    setTimeout(() => {
+                        console.log('\n📜 Now capturing console logs...');
+                        ws.send(JSON.stringify({
+                            id: ++messageId,
+                            method: 'get_console_logs',
+                            params: { 
+                                tabId: currentTabId,
+                                limit: 50
+                            }
+                        }));
+                    }, 15000);
+                } else {
+                    console.log('❌ No accessible tabs found');
+                    ws.close();
+                    resolve();
+                }
+            } else if (response.id === 2) {
                 if (response.success) {
                     console.log('\n📊 NATIVE CONSOLE LOG RESULTS:');
                     console.log('===============================');

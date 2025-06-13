@@ -4,6 +4,7 @@
  */
 
 const WebSocket = require('ws');
+const { createNamedBROPConnection } = require('../../test-utils');
 
 async function testManualInjection() {
     console.log('🔧 Testing Manual Content Script Injection');
@@ -11,30 +12,67 @@ async function testManualInjection() {
     
     // Navigate to a clean page first
     console.log('📋 Step 1: Navigate to test page...');
-    const ws1 = new WebSocket('ws://localhost:9223');
+    const ws1 = createNamedBROPConnection('navigation');
     
     await new Promise((resolve) => {
         let resolved = false;
         
         ws1.on('open', () => {
-            const navMessage = {
-                id: 'nav-manual-test',
-                command: {
-                    type: 'navigate',
-                    url: 'https://httpbin.org/html'
-                }
+            // First get tabs
+            const tabsMessage = {
+                id: 'get-tabs-manual',
+                method: 'list_tabs',
+                params: {}
             };
-            ws1.send(JSON.stringify(navMessage));
+            ws1.send(JSON.stringify(tabsMessage));
         });
         
+        let currentTabId = null;
         ws1.on('message', (data) => {
             if (resolved) return;
-            resolved = true;
             
             const response = JSON.parse(data.toString());
-            console.log(`   Navigation: ${response.success ? 'SUCCESS' : `FAILED: ${response.error}`}`);
-            ws1.close();
-            resolve();
+            
+            if (response.id === 'get-tabs-manual' && response.success) {
+                const tabs = response.result.tabs || [];
+                const accessibleTab = tabs.find(tab => tab.accessible && !tab.url.includes('chrome://'));
+                
+                if (!accessibleTab) {
+                    // Create a new tab
+                    const createMessage = {
+                        id: 'create-tab-manual',
+                        method: 'create_tab',
+                        params: { url: 'https://httpbin.org/html' }
+                    };
+                    ws1.send(JSON.stringify(createMessage));
+                    return;
+                }
+                
+                currentTabId = accessibleTab.tabId;
+                // Navigate existing tab
+                const navMessage = {
+                    id: 'nav-manual-test',
+                    method: 'navigate',
+                    params: {
+                        tabId: currentTabId,
+                        url: 'https://httpbin.org/html'
+                    }
+                };
+                ws1.send(JSON.stringify(navMessage));
+                
+            } else if (response.id === 'create-tab-manual' && response.success) {
+                currentTabId = response.result.tabId;
+                resolved = true;
+                console.log(`   Navigation: SUCCESS (created tab ${currentTabId})`);
+                ws1.close();
+                resolve();
+                
+            } else if (response.id === 'nav-manual-test') {
+                resolved = true;
+                console.log(`   Navigation: ${response.success ? 'SUCCESS' : `FAILED: ${response.error}`}`);
+                ws1.close();
+                resolve();
+            }
         });
         
         setTimeout(() => {
@@ -51,18 +89,41 @@ async function testManualInjection() {
     
     // Try to manually inject and test the content script
     console.log('\n📋 Step 2: Manual content script injection...');
-    const ws2 = new WebSocket('ws://localhost:9223');
+    const ws2 = createNamedBROPConnection('injection');
     
     await new Promise((resolve) => {
         let resolved = false;
         
         ws2.on('open', () => {
-            // Test if content script exists, if not try to inject it
-            const testMessage = {
-                id: 'manual-injection-test',
-                command: {
-                    type: 'execute_console',
-                    code: `
+            // First get current tab
+            const tabsMessage = {
+                id: 'get-tabs-inject',
+                method: 'list_tabs',
+                params: {}
+            };
+            ws2.send(JSON.stringify(tabsMessage));
+        });
+        
+        let injectTabId = null;
+        ws2.on('message', (data) => {
+            if (resolved) return;
+            
+            const response = JSON.parse(data.toString());
+            
+            if (response.id === 'get-tabs-inject' && response.success) {
+                const tabs = response.result.tabs || [];
+                const accessibleTab = tabs.find(tab => tab.accessible && !tab.url.includes('chrome://'));
+                
+                if (accessibleTab) {
+                    injectTabId = accessibleTab.tabId;
+                    
+                    // Test if content script exists, if not try to inject it
+                    const testMessage = {
+                        id: 'manual-injection-test',
+                        method: 'execute_console',
+                        params: {
+                            tabId: injectTabId,
+                            code: `
                         // Check if content script is already loaded
                         if (typeof window.BROP === 'undefined') {
                             console.log('BROP content script not found, manual injection needed');
@@ -95,37 +156,40 @@ async function testManualInjection() {
                             return 'CONTENT_SCRIPT_ALREADY_LOADED';
                         }
                     `
-                }
-            };
-            
-            console.log('   📤 Testing/injecting content script...');
-            ws2.send(JSON.stringify(testMessage));
-        });
-        
-        ws2.on('message', (data) => {
-            if (resolved) return;
-            resolved = true;
-            
-            try {
-                const response = JSON.parse(data.toString());
-                
-                if (response.success) {
-                    console.log(`   📥 Injection result: ${response.result.result}`);
+                        }
+                    };
                     
-                    if (response.result.result === 'CONTENT_SCRIPT_ALREADY_LOADED') {
-                        console.log('   ✅ Content script is already loaded!');
-                    } else if (response.result.result === 'MANUAL_INJECTION_SUCCESS') {
-                        console.log('   🔧 Manually injected basic BROP functionality');
-                    }
+                    console.log('   📤 Testing/injecting content script...');
+                    ws2.send(JSON.stringify(testMessage));
                 } else {
-                    console.log(`   ❌ Injection test failed: ${response.error}`);
+                    resolved = true;
+                    console.log('   ❌ No accessible tab found for injection test');
+                    ws2.close();
+                    resolve();
                 }
-            } catch (error) {
-                console.log(`   ❌ Error parsing injection response: ${error.message}`);
+                
+            } else if (response.id === 'manual-injection-test') {
+                resolved = true;
+                
+                try {
+                    if (response.success) {
+                        console.log(`   📥 Injection result: ${response.result.result}`);
+                        
+                        if (response.result.result === 'CONTENT_SCRIPT_ALREADY_LOADED') {
+                            console.log('   ✅ Content script is already loaded!');
+                        } else if (response.result.result === 'MANUAL_INJECTION_SUCCESS') {
+                            console.log('   🔧 Manually injected basic BROP functionality');
+                        }
+                    } else {
+                        console.log(`   ❌ Injection test failed: ${response.error}`);
+                    }
+                } catch (error) {
+                    console.log(`   ❌ Error parsing injection response: ${error.message}`);
+                }
+                
+                ws2.close();
+                resolve();
             }
-            
-            ws2.close();
-            resolve();
         });
         
         setTimeout(() => {
@@ -140,61 +204,87 @@ async function testManualInjection() {
     
     // Now test the simplified DOM again
     console.log('\n📋 Step 3: Test simplified DOM after injection...');
-    const ws3 = new WebSocket('ws://localhost:9223');
+    const ws3 = createNamedBROPConnection('dom-test');
     
     await new Promise((resolve) => {
         let resolved = false;
         
         ws3.on('open', () => {
-            const domMessage = {
-                id: 'test-dom-post-injection',
-                command: {
-                    type: 'get_simplified_dom',
-                    max_depth: 2,
-                    include_hidden: false
-                }
+            // First get current tab
+            const tabsMessage = {
+                id: 'get-tabs-dom',
+                method: 'list_tabs',
+                params: {}
             };
-            
-            console.log('   📤 Testing simplified DOM...');
-            ws3.send(JSON.stringify(domMessage));
+            ws3.send(JSON.stringify(tabsMessage));
         });
         
+        let domTabId = null;
         ws3.on('message', (data) => {
             if (resolved) return;
-            resolved = true;
             
-            try {
-                const response = JSON.parse(data.toString());
+            const response = JSON.parse(data.toString());
+            
+            if (response.id === 'get-tabs-dom' && response.success) {
+                const tabs = response.result.tabs || [];
+                const accessibleTab = tabs.find(tab => tab.accessible && !tab.url.includes('chrome://'));
                 
-                if (response.success) {
-                    console.log('   ✅ Simplified DOM: SUCCESS!');
-                    console.log('   🎉 Feature working after injection!');
+                if (accessibleTab) {
+                    domTabId = accessibleTab.tabId;
                     
-                    if (response.result) {
-                        console.log(`      Page: ${response.result.page_title}`);
-                        console.log(`      URL: ${response.result.page_url}`);
-                        console.log(`      Elements: ${response.result.total_elements}`);
-                        console.log(`      Interactive: ${response.result.total_interactive_elements}`);
-                    }
+                    const domMessage = {
+                        id: 'test-dom-post-injection',
+                        method: 'get_simplified_dom',
+                        params: {
+                            tabId: domTabId,
+                            max_depth: 2,
+                            include_hidden: false
+                        }
+                    };
+                    
+                    console.log('   📤 Testing simplified DOM...');
+                    ws3.send(JSON.stringify(domMessage));
                 } else {
-                    console.log(`   ❌ Simplified DOM still failing: ${response.error}`);
-                    
-                    // Additional troubleshooting
-                    if (response.error.includes('Could not establish connection')) {
-                        console.log('   🔧 The issue is in message passing between background and content script');
-                        console.log('   💡 Possible solutions:');
-                        console.log('      1. Check chrome://extensions/ - ensure extension is active');
-                        console.log('      2. Try refreshing the webpage after extension reload');
-                        console.log('      3. Check browser console for content script errors');
-                        console.log('      4. Verify the extension has permission for this website');
-                    }
+                    resolved = true;
+                    console.log('   ❌ No accessible tab found for DOM test');
+                    ws3.close();
+                    resolve();
                 }
-            } catch (error) {
-                console.log(`   ❌ Error parsing DOM response: ${error.message}`);
+                
+            } else if (response.id === 'test-dom-post-injection') {
+                resolved = true;
+                
+                try {
+                    if (response.success) {
+                        console.log('   ✅ Simplified DOM: SUCCESS!');
+                        console.log('   🎉 Feature working after injection!');
+                        
+                        if (response.result) {
+                            console.log(`      Page: ${response.result.page_title}`);
+                            console.log(`      URL: ${response.result.page_url}`);
+                            console.log(`      Elements: ${response.result.total_elements}`);
+                            console.log(`      Interactive: ${response.result.total_interactive_elements}`);
+                        }
+                    } else {
+                        console.log(`   ❌ Simplified DOM still failing: ${response.error}`);
+                        
+                        // Additional troubleshooting
+                        if (response.error.includes('Could not establish connection')) {
+                            console.log('   🔧 The issue is in message passing between background and content script');
+                            console.log('   💡 Possible solutions:');
+                            console.log('      1. Check chrome://extensions/ - ensure extension is active');
+                            console.log('      2. Try refreshing the webpage after extension reload');
+                            console.log('      3. Check browser console for content script errors');
+                            console.log('      4. Verify the extension has permission for this website');
+                        }
+                    }
+                } catch (error) {
+                    console.log(`   ❌ Error parsing DOM response: ${error.message}`);
+                }
+                
+                ws3.close();
+                resolve();
             }
-            
-            ws3.close();
-            resolve();
         });
         
         setTimeout(() => {

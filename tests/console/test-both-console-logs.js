@@ -4,12 +4,13 @@
  */
 
 const WebSocket = require('ws');
+const { createBROPConnection } = require('../../test-utils');
 
 async function testBothConsoleLogs() {
     console.log('🌐 Testing Console Log BROP Commands');
     console.log('=====================================');
 
-    const ws = new WebSocket('ws://localhost:9223');
+    const ws = createBROPConnection();
     let requestId = 1;
     let currentTabId = null;
 

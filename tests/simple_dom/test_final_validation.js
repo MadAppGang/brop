@@ -4,6 +4,7 @@
  */
 
 const WebSocket = require('ws');
+const { createBROPConnection, createNamedBROPConnection } = require('../../test-utils');
 
 async function validateAllFeatures() {
     console.log('🎯 Final BROP System Validation');
@@ -22,79 +23,160 @@ async function validateAllFeatures() {
     };
     
     try {
-        // Test 1: Basic BROP Commands
+        // Test 1: Basic BROP Commands with proper tab management
         console.log('📋 Test 1: Basic BROP Commands');
         console.log('-'.repeat(30));
         
-        const basicCommands = [
-            'get_console_logs',
-            'get_screenshot', 
-            'get_page_content'
-        ];
+        // First get a tab to use for all commands
+        let currentTabId = null;
+        const ws1 = createNamedBROPConnection('tab-setup');
         
-        for (const command of basicCommands) {
-            const ws = new WebSocket('ws://localhost:9223');
+        await new Promise((resolve) => {
+            let resolved = false;
             
-            const result = await new Promise((resolve) => {
-                let resolved = false;
+            ws1.on('open', () => {
+                const message = {
+                    id: 'list-tabs',
+                    method: 'list_tabs',
+                    params: {}
+                };
+                ws1.send(JSON.stringify(message));
+            });
+            
+            ws1.on('message', (data) => {
+                if (resolved) return;
                 
-                ws.on('open', () => {
-                    const message = {
-                        id: `test-${command}`,
-                        command: { type: command }
-                    };
-                    ws.send(JSON.stringify(message));
-                });
-                
-                ws.on('message', (data) => {
-                    if (resolved) return;
-                    resolved = true;
+                try {
+                    const response = JSON.parse(data.toString());
                     
-                    try {
-                        const response = JSON.parse(data.toString());
-                        ws.close();
+                    if (response.id === 'list-tabs' && response.success) {
+                        const tabs = response.result.tabs || [];
+                        const accessibleTab = tabs.find(tab => tab.accessible && !tab.url.includes('chrome://'));
+                        
+                        if (accessibleTab) {
+                            currentTabId = accessibleTab.tabId;
+                            console.log(`   ✅ Using tab ${currentTabId}: ${accessibleTab.title}`);
+                        } else {
+                            console.log('   ⚠️ No accessible tabs found, creating new tab...');
+                            const createMessage = {
+                                id: 'create-tab',
+                                method: 'create_tab',
+                                params: { url: 'https://example.com' }
+                            };
+                            ws1.send(JSON.stringify(createMessage));
+                            return;
+                        }
+                    } else if (response.id === 'create-tab' && response.success) {
+                        currentTabId = response.result.tabId;
+                        console.log(`   ✅ Created new tab ${currentTabId}`);
+                    }
+                    
+                    resolved = true;
+                    ws1.close();
+                    resolve();
+                } catch (error) {
+                    console.error('   ❌ Error getting tab:', error.message);
+                    resolved = true;
+                    ws1.close();
+                    resolve();
+                }
+            });
+            
+            ws1.on('error', (error) => {
+                if (resolved) return;
+                resolved = true;
+                console.error('   ❌ Connection error:', error.message);
+                resolve();
+            });
+            
+            setTimeout(() => {
+                if (resolved) return;
+                resolved = true;
+                ws1.close();
+                resolve();
+            }, 5000);
+        });
+        
+        if (!currentTabId) {
+            console.log('   ❌ Could not get or create a tab');
+            results.basicCommands = [
+                { command: 'get_console_logs', success: false, error: 'No tab available' },
+                { command: 'get_screenshot', success: false, error: 'No tab available' },
+                { command: 'get_page_content', success: false, error: 'No tab available' }
+            ];
+        } else {
+            // Now test each command with the tabId
+            const basicCommands = [
+                { method: 'get_console_logs', params: { tabId: currentTabId, limit: 5 } },
+                { method: 'get_screenshot', params: { tabId: currentTabId, format: 'png' } },
+                { method: 'get_page_content', params: { tabId: currentTabId } }
+            ];
+            
+            for (const commandInfo of basicCommands) {
+                const ws = createNamedBROPConnection(`basic-${commandInfo.method}`);
+                
+                const result = await new Promise((resolve) => {
+                    let resolved = false;
+                    
+                    ws.on('open', () => {
+                        const message = {
+                            id: `test-${commandInfo.method}`,
+                            method: commandInfo.method,
+                            params: commandInfo.params
+                        };
+                        ws.send(JSON.stringify(message));
+                    });
+                    
+                    ws.on('message', (data) => {
+                        if (resolved) return;
+                        resolved = true;
+                        
+                        try {
+                            const response = JSON.parse(data.toString());
+                            ws.close();
+                            resolve({
+                                command: commandInfo.method,
+                                success: response.success,
+                                error: response.error
+                            });
+                        } catch (error) {
+                            ws.close();
+                            resolve({
+                                command: commandInfo.method,
+                                success: false,
+                                error: error.message
+                            });
+                        }
+                    });
+                    
+                    ws.on('error', (error) => {
+                        if (resolved) return;
+                        resolved = true;
                         resolve({
-                            command,
-                            success: response.success,
-                            error: response.error
-                        });
-                    } catch (error) {
-                        ws.close();
-                        resolve({
-                            command,
+                            command: commandInfo.method,
                             success: false,
                             error: error.message
                         });
-                    }
+                    });
+                    
+                    setTimeout(() => {
+                        if (resolved) return;
+                        resolved = true;
+                        ws.close();
+                        resolve({
+                            command: commandInfo.method,
+                            success: false,
+                            error: 'timeout'
+                        });
+                    }, 5000);
                 });
                 
-                ws.on('error', (error) => {
-                    if (resolved) return;
-                    resolved = true;
-                    resolve({
-                        command,
-                        success: false,
-                        error: error.message
-                    });
-                });
-                
-                setTimeout(() => {
-                    if (resolved) return;
-                    resolved = true;
-                    ws.close();
-                    resolve({
-                        command,
-                        success: false,
-                        error: 'timeout'
-                    });
-                }, 5000);
-            });
-            
-            results.basicCommands.push(result);
-            if (result.success) {
-                console.log(`   ✅ ${command}: PASS`);
-            } else {
-                console.log(`   ❌ ${command}: FAIL - ${result.error}`);
+                results.basicCommands.push(result);
+                if (result.success) {
+                    console.log(`   ✅ ${commandInfo.method}: PASS`);
+                } else {
+                    console.log(`   ❌ ${commandInfo.method}: FAIL - ${result.error}`);
+                }
             }
         }
         
@@ -102,7 +184,7 @@ async function validateAllFeatures() {
         console.log('\n📋 Test 2: Simplified DOM Feature');
         console.log('-'.repeat(30));
         
-        const ws = new WebSocket('ws://localhost:9223');
+        const ws = createNamedBROPConnection('simplified-dom');
         
         results.simplifiedDOM = await new Promise((resolve) => {
             let resolved = false;
@@ -110,8 +192,9 @@ async function validateAllFeatures() {
             ws.on('open', () => {
                 const message = {
                     id: 'test-simplified-dom',
-                    command: {
-                        type: 'get_simplified_dom',
+                    method: 'get_simplified_dom',
+                    params: {
+                        tabId: currentTabId,
                         max_depth: 3,
                         include_hidden: false,
                         include_text_nodes: true,

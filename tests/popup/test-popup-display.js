@@ -1,11 +1,12 @@
 const WebSocket = require('ws');
+const { createNamedBROPConnection } = require('../../test-utils');
 
 async function testPopupDisplay() {
     console.log('🧪 Simple Popup Display Test');
     console.log('============================');
     console.log('📋 This script will generate various log entries for popup testing');
     
-    const ws = new WebSocket('ws://localhost:9223');
+    const ws = createNamedBROPConnection('popup-display-test');
     
     return new Promise((resolve, reject) => {
         let messageId = 0;

@@ -1,24 +1,25 @@
 const WebSocket = require('ws');
+const { createBROPConnection } = require('../../test-utils');
 
 async function testRuntimeMessaging() {
-    console.log('📨 Testing Your Runtime Messaging Approach');
-    console.log('==========================================');
-    console.log('🎯 Testing: chrome.runtime.sendMessage({type: "GET_LOGS", tabId})');
+    console.log('📨 Testing Runtime Messaging Approach');
+    console.log('======================================');
+    console.log('🎯 Testing: chrome.runtime.sendMessage with proper tabId handling');
     
-    const ws = new WebSocket('ws://localhost:9223');
+    const ws = createBROPConnection();
+    let messageId = 0;
+    let currentTabId = null;
     
     return new Promise((resolve, reject) => {
-        let messageId = 0;
-        
         ws.on('open', function open() {
             console.log('✅ Connected to BROP bridge');
             
-            // First, generate some extension activity to create logs
-            console.log('\n🔧 Step 1: Generating extension activity...');
+            // First, get available tabs
+            console.log('\n🔧 Step 1: Getting available tabs...');
             ws.send(JSON.stringify({
                 id: ++messageId,
-                method: 'get_page_content',
-                params: { include_metadata: true }
+                method: 'list_tabs',
+                params: {}
             }));
         });
         
@@ -26,12 +27,40 @@ async function testRuntimeMessaging() {
             const response = JSON.parse(data);
             console.log(`📥 Response ${response.id}: ${response.success ? '✅' : '❌'}`);
             
-            if (response.id === 1) {
+            if (response.id === 1 && response.success) {
+                // Handle tabs list
+                const tabs = response.result.tabs || [];
+                console.log(`   ✅ Found ${tabs.length} tabs`);
+                
+                const accessibleTab = tabs.find(tab => tab.accessible && !tab.url.includes('chrome://'));
+                
+                if (!accessibleTab) {
+                    console.log('   ❌ No accessible tabs found');
+                    ws.close();
+                    resolve();
+                    return;
+                }
+                
+                currentTabId = accessibleTab.tabId;
+                console.log(`   🎯 Using tab ${currentTabId}: ${accessibleTab.title}`);
+                
+                // Generate some extension activity to create logs
+                console.log('\n🔧 Step 2: Generating extension activity...');
+                ws.send(JSON.stringify({
+                    id: ++messageId,
+                    method: 'get_page_content',
+                    params: { 
+                        tabId: currentTabId,
+                        include_metadata: true 
+                    }
+                }));
+                
+            } else if (response.id === 2) {
                 if (response.success) {
                     console.log(`   ✅ Page content retrieved from: ${response.result?.title || 'Unknown'}`);
                     
                     // Now test runtime messaging approach
-                    console.log('\n🔧 Step 2: Testing runtime messaging...');
+                    console.log('\n🔧 Step 3: Testing runtime messaging...');
                     console.log('   📞 Simulating: chrome.runtime.sendMessage({type: "GET_LOGS", tabId})');
                     
                     // This tests the runtime messaging implementation
@@ -39,6 +68,7 @@ async function testRuntimeMessaging() {
                         id: ++messageId,
                         method: 'get_console_logs',
                         params: { 
+                            tabId: currentTabId,
                             limit: 10,
                             source: 'runtime_messaging_test'
                         }
@@ -48,7 +78,8 @@ async function testRuntimeMessaging() {
                     ws.close();
                     resolve();
                 }
-            } else if (response.id === 2) {
+                
+            } else if (response.id === 3) {
                 if (response.success) {
                     console.log('\n📊 RUNTIME MESSAGING RESULTS:');
                     console.log('==============================');
@@ -77,14 +108,18 @@ async function testRuntimeMessaging() {
                         if (result.source === 'runtime_messaging_console') {
                             console.log('✅ PRIMARY: chrome.runtime.sendMessage approach working!');
                             console.log('   🎯 Successfully used runtime messaging');
-                            console.log('   🎯 Retrieved console messages via your suggested method');
+                            console.log('   🎯 Retrieved console messages via runtime messaging method');
                         } else if (result.source === 'extension_fallback') {
                             console.log('⚠️  FALLBACK: Extension background logs used');
                             console.log('   📊 Runtime messaging fell back to extension logs');
                             console.log('   💡 This shows the fallback mechanism works');
-                        } else if (result.source === 'page_console_cdp') {
-                            console.log('✅ CDP: Chrome DevTools Protocol approach');
-                            console.log('   🎯 Using debugger API for console capture');
+                        } else if (result.source === 'runtime_messaging_primary') {
+                            console.log('✅ PRIMARY: Runtime messaging approach working!');
+                            console.log('   🎯 Successfully used chrome.runtime.sendMessage');
+                            console.log('   🎯 Retrieved console messages via runtime API');
+                        } else {
+                            console.log(`✅ WORKING: Source type: ${result.source}`);
+                            console.log('   🎯 Console log retrieval is functional');
                         }
                         
                         // Check for extension logs (these show extension activity)
@@ -96,13 +131,13 @@ async function testRuntimeMessaging() {
                         
                         if (extensionLogs.length > 0) {
                             console.log(`\n🎉 SUCCESS: Found ${extensionLogs.length} extension activity logs!`);
-                            console.log('✅ Your runtime messaging approach is working for extension logs');
+                            console.log('✅ Runtime messaging approach is working for extension logs');
                             console.log('✅ Can successfully call chrome.runtime.sendMessage({type: "GET_LOGS", tabId})');
                         }
                         
                     } else {
                         console.log('\n📋 No logs captured');
-                        console.log('💡 This suggests logs need to be generated first');
+                        console.log('💡 This suggests logs need to be generated first or captured differently');
                     }
                     
                     console.log('\n🎯 RUNTIME MESSAGING SUMMARY:');
@@ -110,12 +145,16 @@ async function testRuntimeMessaging() {
                     console.log('✅ chrome.runtime.sendMessage() API is properly implemented');
                     console.log('✅ GET_LOGS message type is handled in background script');
                     console.log('✅ Fallback mechanisms work when console capture fails');
-                    console.log('✅ Your suggested approach is the right architecture');
+                    console.log('✅ Runtime messaging approach is the right architecture');
                     
                 } else {
                     console.log(`   ❌ Failed to test runtime messaging: ${response.error}`);
                 }
                 
+                ws.close();
+                resolve();
+            } else if (!response.success) {
+                console.log(`   ❌ Failed: ${response.error}`);
                 ws.close();
                 resolve();
             }

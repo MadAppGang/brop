@@ -1,11 +1,12 @@
 const WebSocket = require('ws');
+const { createBROPConnection } = require('../../test-utils');
 
 async function testSimplifiedDOM() {
     console.log('🧪 BROP Simplified DOM Test');
     console.log('===========================');
     console.log('📋 Testing new Readability + Turndown implementation');
     
-    const ws = new WebSocket('ws://localhost:9223');
+    const ws = createBROPConnection();
     let testTabId = null;
     
     return new Promise((resolve, reject) => {

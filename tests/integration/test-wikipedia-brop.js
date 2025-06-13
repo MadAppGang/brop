@@ -5,6 +5,7 @@
  */
 
 const WebSocket = require('ws');
+const { createNamedBROPConnection } = require('../../test-utils');
 
 class WikipediaBROPTest {
     constructor() {
@@ -22,9 +23,30 @@ class WikipediaBROPTest {
             console.log('📋 Connecting to BROP bridge...');
             await this.connect();
 
+            // First get available tabs or create one
+            console.log('\n📋 Getting available tabs...');
+            const tabsResult = await this.sendBROPCommand('list_tabs', {});
+            let currentTabId = null;
+            
+            const tabs = tabsResult.tabs || [];
+            const accessibleTab = tabs.find(tab => tab.accessible && !tab.url.includes('chrome://'));
+            
+            if (accessibleTab) {
+                currentTabId = accessibleTab.tabId;
+                console.log(`   ✅ Using existing tab ${currentTabId}: ${accessibleTab.title}`);
+            } else {
+                console.log('   🔧 Creating new tab...');
+                const createResult = await this.sendBROPCommand('create_tab', {
+                    url: 'about:blank'
+                });
+                currentTabId = createResult.tabId;
+                console.log(`   ✅ Created new tab ${currentTabId}`);
+            }
+
             // Navigate to Wikipedia
             console.log('\n🌐 Navigating to Wikipedia AI page...');
             const navResult = await this.sendBROPCommand('navigate', {
+                tabId: currentTabId,
                 url: 'https://en.wikipedia.org/wiki/Artificial_intelligence'
             });
             console.log('   ✅ Navigation completed');
@@ -35,13 +57,16 @@ class WikipediaBROPTest {
 
             // Get page content
             console.log('\n📄 Getting page content...');
-            const pageContent = await this.sendBROPCommand('get_page_content', {});
+            const pageContent = await this.sendBROPCommand('get_page_content', {
+                tabId: currentTabId
+            });
             console.log(`   ✅ Page loaded: ${pageContent.title}`);
             console.log(`   📄 URL: ${pageContent.url}`);
 
             // Extract structured content using JavaScript
             console.log('\n📖 Extracting Wikipedia data...');
             const extractResult = await this.sendBROPCommand('execute_console', {
+                tabId: currentTabId,
                 code: `
                     // Extract Wikipedia article content
                     const extractWikipediaContent = () => {
@@ -134,6 +159,7 @@ class WikipediaBROPTest {
             // Get simplified DOM in markdown format
             console.log('\n🌳 Getting simplified DOM as markdown...');
             const domResult = await this.sendBROPCommand('get_simplified_dom', {
+                tabId: currentTabId,
                 format: 'markdown',
                 max_depth: 4
             });
@@ -142,6 +168,7 @@ class WikipediaBROPTest {
             // Take a screenshot
             console.log('\n📸 Taking screenshot...');
             const screenshot = await this.sendBROPCommand('get_screenshot', {
+                tabId: currentTabId,
                 format: 'png'
             });
             console.log(`   ✅ Screenshot captured (${screenshot.image_data.length} chars base64)`);
@@ -176,7 +203,7 @@ class WikipediaBROPTest {
 
     async connect() {
         return new Promise((resolve, reject) => {
-            this.ws = new WebSocket('ws://localhost:9223');
+            this.ws = createNamedBROPConnection('wikipedia-test');
 
             this.ws.on('open', () => {
                 console.log('   ✅ Connected to BROP bridge server');

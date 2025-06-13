@@ -1,10 +1,12 @@
 const WebSocket = require('ws');
+const { createBROPConnection } = require('../../test-utils');
 
 async function testImplementationDetails() {
     console.log('🔧 Console Log Implementation Details Test');
     console.log('==========================================');
     
-    const ws = new WebSocket('ws://localhost:9223');
+    const ws = createBROPConnection();
+    let currentTabId = null;
     
     return new Promise((resolve, reject) => {
         let messageId = 0;
@@ -12,15 +14,12 @@ async function testImplementationDetails() {
         ws.on('open', function open() {
             console.log('✅ Connected to BROP bridge');
             
-            // Test the detailed console log implementation
-            console.log('\n🔍 Testing detailed console log capture implementation...');
+            // Step 1: Get available tabs first
+            console.log('\n📋 Step 1: Getting available tabs...');
             ws.send(JSON.stringify({
                 id: ++messageId,
-                method: 'get_console_logs',
-                params: { 
-                    limit: 10,
-                    level: 'all'
-                }
+                method: 'list_tabs',
+                params: {}
             }));
         });
         
@@ -28,8 +27,57 @@ async function testImplementationDetails() {
             const response = JSON.parse(data);
             console.log(`📥 Response ${response.id}: ${response.success ? '✅' : '❌'}`);
             
-            if (response.id === 1) {
-                if (response.success) {
+            if (response.id === 1 && response.success) {
+                // Handle tabs list response
+                const tabs = response.result.tabs || [];
+                console.log(`   ✅ Found ${tabs.length} tabs`);
+                
+                const accessibleTab = tabs.find(tab => tab.accessible && !tab.url.includes('chrome://'));
+                
+                if (!accessibleTab) {
+                    console.log('\n🔧 Creating new tab for testing...');
+                    ws.send(JSON.stringify({
+                        id: ++messageId,
+                        method: 'create_tab',
+                        params: { url: 'https://example.com' }
+                    }));
+                    return;
+                }
+                
+                currentTabId = accessibleTab.tabId;
+                console.log(`   🎯 Using tab ${currentTabId}: ${accessibleTab.title}`);
+                
+                // Test the detailed console log implementation
+                console.log('\n🔍 Testing detailed console log capture implementation...');
+                ws.send(JSON.stringify({
+                    id: ++messageId,
+                    method: 'get_console_logs',
+                    params: { 
+                        tabId: currentTabId,
+                        limit: 10,
+                        level: 'all'
+                    }
+                }));
+                
+            } else if (response.success && response.result && response.result.tabId) {
+                // Handle tab creation response
+                currentTabId = response.result.tabId;
+                console.log(`   ✅ Created new tab ${currentTabId}`);
+                
+                // Test the detailed console log implementation
+                console.log('\n🔍 Testing detailed console log capture implementation...');
+                ws.send(JSON.stringify({
+                    id: ++messageId,
+                    method: 'get_console_logs',
+                    params: { 
+                        tabId: currentTabId,
+                        limit: 10,
+                        level: 'all'
+                    }
+                }));
+                
+            } else if (response.success) {
+                if (response.id >= 2) {
                     console.log('\n🔧 DETAILED IMPLEMENTATION RESULTS:');
                     console.log('=====================================');
                     

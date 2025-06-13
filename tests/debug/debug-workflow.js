@@ -9,6 +9,7 @@
  */
 
 const WebSocket = require('ws');
+const { createBROPConnection } = require('../../test-utils');
 
 let messageId = 0;
 
@@ -21,7 +22,7 @@ async function debugWorkflow() {
     try {
         console.log('📋 Step 1: Connecting to BROP bridge...');
         
-        ws = new WebSocket('ws://localhost:9223');
+        ws = createBROPConnection();
         
         await new Promise((resolve, reject) => {
             ws.on('open', resolve);

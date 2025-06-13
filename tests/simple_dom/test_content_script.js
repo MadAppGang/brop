@@ -4,65 +4,130 @@
  */
 
 const WebSocket = require('ws');
+const { createBROPConnection } = require('../../test-utils');
 
 async function testContentScript() {
     console.log('🔍 Testing Content Script Injection and Communication');
-    console.log('=' + '='.repeat(50));
+    console.log('===================================================');
     
-    // First navigate to a webpage
-    console.log('📋 Step 1: Navigate to test webpage...');
-    const ws1 = new WebSocket('ws://localhost:9223');
-    
-    await new Promise((resolve) => {
-        let resolved = false;
-        
-        ws1.on('open', () => {
-            const navMessage = {
-                id: 'nav-content-test',
-                command: {
-                    type: 'navigate',
-                    url: 'https://httpbin.org/html'  // Simple test page
-                }
+    const ws = createBROPConnection();
+    let requestId = 1;
+    let currentTabId = null;
+
+    return new Promise((resolve) => {
+        ws.on('open', () => {
+            console.log('✅ Connected to BROP bridge');
+
+            // Step 1: Get available tabs
+            console.log('\n📋 Step 1: Getting available tabs...');
+            const tabsCommand = {
+                id: requestId++,
+                method: 'list_tabs',
+                params: {}
             };
-            ws1.send(JSON.stringify(navMessage));
+            ws.send(JSON.stringify(tabsCommand));
         });
-        
-        ws1.on('message', (data) => {
-            if (resolved) return;
-            resolved = true;
-            
-            const response = JSON.parse(data.toString());
-            console.log(`   Navigation: ${response.success ? 'SUCCESS' : `FAILED: ${response.error}`}`);
-            ws1.close();
-            resolve();
-        });
-        
-        setTimeout(() => {
-            if (!resolved) {
-                resolved = true;
-                ws1.close();
-                resolve();
+
+        ws.on('message', (data) => {
+            try {
+                const message = JSON.parse(data);
+                console.log(`📥 Response ${message.id}: ${message.success ? '✅' : '❌'}`);
+
+                if (message.id === 1 && message.success) {
+                    // Handle tabs list
+                    const tabs = message.result.tabs || [];
+                    console.log(`   ✅ Found ${tabs.length} tabs`);
+                    
+                    const accessibleTab = tabs.find(tab => tab.accessible && !tab.url.includes('chrome://'));
+                    
+                    if (!accessibleTab) {
+                        console.log('\n📋 Creating new tab for testing...');
+                        const createTabCommand = {
+                            id: requestId++,
+                            method: 'create_tab',
+                            params: { url: 'https://httpbin.org/html' }
+                        };
+                        ws.send(JSON.stringify(createTabCommand));
+                        return;
+                    }
+                    
+                    currentTabId = accessibleTab.tabId;
+                    console.log(`   🎯 Using tab ${currentTabId}: ${accessibleTab.title}`);
+                    
+                    // Navigate to test page
+                    console.log('\n📋 Step 2: Navigating to test page...');
+                    const navCommand = {
+                        id: requestId++,
+                        method: 'navigate',
+                        params: { 
+                            tabId: currentTabId,
+                            url: 'https://httpbin.org/html' 
+                        }
+                    };
+                    ws.send(JSON.stringify(navCommand));
+                    
+                } else if (message.success && message.result && message.result.tabId && !currentTabId) {
+                    // Handle tab creation
+                    currentTabId = message.result.tabId;
+                    console.log(`   ✅ Created tab ${currentTabId}`);
+                    
+                    setTimeout(() => {
+                        checkContentScript();
+                    }, 3000);
+                    
+                } else if (message.success && currentTabId) {
+                    if (message.id === 2) {
+                        // Navigation completed
+                        console.log('   ✅ Navigation completed');
+                        setTimeout(() => {
+                            checkContentScript();
+                        }, 2000);
+                    } else if (message.id === 3) {
+                        // Content script check completed
+                        handleContentScriptResult(message);
+                        setTimeout(() => {
+                            testSimplifiedDOM();
+                        }, 1000);
+                    } else if (message.id === 4) {
+                        // Simplified DOM test completed
+                        handleSimplifiedDOMResult(message);
+                        setTimeout(() => {
+                            console.log('\n🎯 Content script diagnosis complete!');
+                            ws.close();
+                            resolve();
+                        }, 500);
+                    }
+                } else if (!message.success) {
+                    console.log(`   ❌ Error: ${message.error}`);
+                    // Continue to next test anyway
+                    setTimeout(() => {
+                        if (message.id === 1) {
+                            console.log('\n❌ No tabs available for testing');
+                            ws.close();
+                            resolve();
+                        } else if (message.id === 2) {
+                            checkContentScript();
+                        } else if (message.id === 3) {
+                            testSimplifiedDOM();
+                        } else {
+                            console.log('\n🎯 Content script diagnosis complete!');
+                            ws.close();
+                            resolve();
+                        }
+                    }, 500);
+                }
+            } catch (error) {
+                console.log('📝 Parse error:', error.message);
             }
-        }, 5000);
-    });
-    
-    // Wait for page load
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    // Test if content script responds to basic commands
-    console.log('\n📋 Step 2: Test content script communication...');
-    
-    // Try to inject a simple script that checks for BROP content script
-    const ws2 = new WebSocket('ws://localhost:9223');
-    
-    await new Promise((resolve) => {
-        let resolved = false;
-        
-        ws2.on('open', () => {
-            const testMessage = {
-                id: 'test-content-injection',
-                command: {
-                    type: 'execute_console',
+        });
+
+        function checkContentScript() {
+            console.log('\n📋 Step 3: Testing content script communication...');
+            const testCommand = {
+                id: requestId++,
+                method: 'execute_console',
+                params: {
+                    tabId: currentTabId,
                     code: `
                         // Check if content script is loaded
                         const hasContentScript = typeof window.BROP !== 'undefined';
@@ -80,18 +145,13 @@ async function testContentScript() {
             };
             
             console.log('   📤 Checking content script status...');
-            ws2.send(JSON.stringify(testMessage));
-        });
-        
-        ws2.on('message', (data) => {
-            if (resolved) return;
-            resolved = true;
-            
-            try {
-                const response = JSON.parse(data.toString());
-                
-                if (response.success) {
-                    const result = JSON.parse(response.result.result);
+            ws.send(JSON.stringify(testCommand));
+        }
+
+        function handleContentScriptResult(message) {
+            if (message.success) {
+                try {
+                    const result = JSON.parse(message.result.result);
                     console.log('   📥 Content script check results:');
                     console.log(`      BROP Content Script: ${result.hasBROPContentScript ? '✅ LOADED' : '❌ NOT LOADED'}`);
                     console.log(`      Message Listener: ${result.hasMessageListener ? '✅ AVAILABLE' : '❌ NOT AVAILABLE'}`);
@@ -109,103 +169,87 @@ async function testContentScript() {
                     } else {
                         console.log('\n✅ Content script is loaded correctly!');
                     }
-                } else {
-                    console.log(`   ❌ Content script check failed: ${response.error}`);
+                } catch (parseError) {
+                    console.log(`   ❌ Error parsing content script check: ${parseError.message}`);
+                    console.log(`   📝 Raw result: ${message.result.result}`);
                 }
-            } catch (error) {
-                console.log(`   ❌ Error parsing content script check: ${error.message}`);
+            } else {
+                console.log(`   ❌ Content script check failed: ${message.error}`);
             }
-            
-            ws2.close();
-            resolve();
-        });
-        
-        setTimeout(() => {
-            if (!resolved) {
-                resolved = true;
-                console.log('   ⏰ Content script check timeout');
-                ws2.close();
-                resolve();
-            }
-        }, 5000);
-    });
-    
-    // Now try the simplified DOM command again with better error handling
-    console.log('\n📋 Step 3: Test simplified DOM with detailed error handling...');
-    const ws3 = new WebSocket('ws://localhost:9223');
-    
-    await new Promise((resolve) => {
-        let resolved = false;
-        
-        ws3.on('open', () => {
-            const domMessage = {
-                id: 'test-dom-detailed',
-                command: {
-                    type: 'get_simplified_dom',
-                    max_depth: 2,
-                    include_hidden: false
+        }
+
+        function testSimplifiedDOM() {
+            console.log('\n📋 Step 4: Testing simplified DOM with detailed error handling...');
+            const domCommand = {
+                id: requestId++,
+                method: 'get_simplified_dom',
+                params: {
+                    tabId: currentTabId,
+                    format: 'markdown',
+                    max_depth: 2
                 }
             };
             
             console.log('   📤 Sending simplified DOM request...');
-            ws3.send(JSON.stringify(domMessage));
-        });
-        
-        ws3.on('message', (data) => {
-            if (resolved) return;
-            resolved = true;
-            
-            try {
-                const response = JSON.parse(data.toString());
+            ws.send(JSON.stringify(domCommand));
+        }
+
+        function handleSimplifiedDOMResult(message) {
+            if (message.success) {
+                console.log('   ✅ Simplified DOM: SUCCESS!');
+                console.log('   🎉 Content script communication working!');
                 
-                if (response.success) {
-                    console.log('   ✅ Simplified DOM: SUCCESS!');
-                    console.log('   🎉 Content script communication working!');
-                    
-                    if (response.result) {
-                        console.log('   📊 DOM result preview:');
-                        console.log(`      Page: ${response.result.page_title || 'N/A'}`);
-                        console.log(`      Elements: ${response.result.total_elements || 'N/A'}`);
-                        console.log(`      Interactive: ${response.result.total_interactive_elements || 'N/A'}`);
-                    }
-                } else {
-                    console.log(`   ❌ Simplified DOM failed: ${response.error}`);
-                    
-                    // Detailed error analysis
-                    if (response.error.includes('Could not establish connection')) {
-                        console.log('   🔧 Content script communication failure');
-                        console.log('      - Content script may not be loaded');
-                        console.log('      - Message listener not responding');
-                        console.log('      - Extension permissions issue');
-                    } else if (response.error.includes('Receiving end does not exist')) {
-                        console.log('   🔧 Content script not responding');
-                        console.log('      - Content script crashed or not loaded');
-                        console.log('      - Page navigation interrupted content script');
-                    } else if (response.error.includes('Unsupported BROP command')) {
-                        console.log('   🔧 Background script handler missing');
-                        console.log('      - Extension reload may not have applied changes');
-                    }
+                if (message.result) {
+                    const result = message.result;
+                    console.log('   📊 DOM result preview:');
+                    console.log(`      Format: ${result.format || 'N/A'}`);
+                    console.log(`      Content length: ${result.content?.length || 0} chars`);
+                    console.log(`      Source: ${result.source || 'N/A'}`);
+                    console.log(`      Title: ${result.title || 'N/A'}`);
                 }
-            } catch (error) {
-                console.log(`   ❌ Error parsing DOM response: ${error.message}`);
+            } else {
+                console.log(`   ❌ Simplified DOM failed: ${message.error}`);
+                
+                // Detailed error analysis
+                if (message.error.includes('Could not establish connection')) {
+                    console.log('   🔧 Content script communication failure');
+                    console.log('      - Content script may not be loaded');
+                    console.log('      - Message listener not responding');
+                    console.log('      - Extension permissions issue');
+                } else if (message.error.includes('Receiving end does not exist')) {
+                    console.log('   🔧 Content script not responding');
+                    console.log('      - Content script crashed or not loaded');
+                    console.log('      - Page navigation interrupted content script');
+                } else if (message.error.includes('Unsupported BROP command')) {
+                    console.log('   🔧 Background script handler missing');
+                    console.log('      - Extension reload may not have applied changes');
+                } else if (message.error.includes('tabId is required')) {
+                    console.log('   🔧 TabId parameter missing');
+                    console.log('      - Command structure updated to require explicit tab targeting');
+                }
             }
-            
-            ws3.close();
+        }
+
+        ws.on('error', (error) => {
+            console.error('❌ Connection error:', error.message);
             resolve();
         });
-        
+
+        ws.on('close', () => {
+            console.log('🔌 Disconnected from bridge');
+            resolve();
+        });
+
+        // Overall timeout
         setTimeout(() => {
-            if (!resolved) {
-                resolved = true;
-                console.log('   ⏰ Simplified DOM test timeout');
-                ws3.close();
-                resolve();
-            }
-        }, 10000);
+            console.log('⏰ Overall test timeout');
+            ws.close();
+            resolve();
+        }, 15000);
     });
-    
-    console.log('\n🎯 Diagnosis Complete!');
-    console.log('📋 Check the results above to understand the issue.');
 }
 
-testContentScript();
+// Run the test
+if (require.main === module) {
+    testContentScript().catch(console.error);
+}

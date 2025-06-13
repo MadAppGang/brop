@@ -1,11 +1,12 @@
 const WebSocket = require('ws');
+const { createBROPConnection } = require('../../test-utils');
 
 async function testExplicitTabManagement() {
     console.log('🧪 BROP Explicit Tab Management Test');
     console.log('====================================');
     console.log('📋 Testing strict tab targeting approach');
     
-    const ws = new WebSocket('ws://localhost:9223');
+    const ws = createBROPConnection();
     let testTabId = null;
     
     return new Promise((resolve, reject) => {
@@ -34,8 +35,10 @@ async function testExplicitTabManagement() {
                 console.log('✅ Strict tab targeting works correctly');
                 console.log('✅ No fallback logic needed');
                 console.log('✅ Predictable and reliable tab operations');
-                ws.close();
-                resolve();
+                setTimeout(() => {
+                    ws.close();
+                    resolve();
+                }, 200);
                 return;
             }
             
@@ -164,11 +167,11 @@ async function testExplicitTabManagement() {
                         console.log(`   🔗 URL: ${response.result.url}`);
                         console.log(`   📄 Title: ${response.result.title}`);
                         // Wait for page to load
-                        console.log('   ⏳ Waiting 3 seconds for page to load...');
+                        console.log('   ⏳ Waiting 1 second for page to load...');
                         setTimeout(() => {
                             currentTest++;
                             runNextTest();
-                        }, 3000);
+                        }, 1000);
                         return;
                         
                     case 'navigate_tab':
@@ -178,7 +181,7 @@ async function testExplicitTabManagement() {
                         setTimeout(() => {
                             currentTest++;
                             runNextTest();
-                        }, 2000);
+                        }, 1000);
                         return;
                         
                     case 'execute_console':
@@ -237,7 +240,7 @@ async function testExplicitTabManagement() {
             }
             
             currentTest++;
-            setTimeout(runNextTest, 1000);
+            setTimeout(runNextTest, 300);
         });
         
         ws.on('close', function close() {
@@ -246,7 +249,7 @@ async function testExplicitTabManagement() {
         
         ws.on('error', reject);
         
-        // Timeout after 120 seconds
+        // Timeout after 15 seconds
         setTimeout(() => {
             console.log('⏰ Test timeout - cleaning up...');
             if (testTabId) {
@@ -261,8 +264,8 @@ async function testExplicitTabManagement() {
             setTimeout(() => {
                 ws.close();
                 resolve();
-            }, 1000);
-        }, 120000);
+            }, 500);
+        }, 15000);
     });
 }
 
