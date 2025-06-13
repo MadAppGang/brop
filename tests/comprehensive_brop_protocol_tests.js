@@ -14,6 +14,7 @@ const WebSocket = require('ws');
 const { promisify } = require('util');
 const fs = require('fs').promises;
 const path = require('path');
+const { createNamedBROPConnection } = require('../client');
 
 class BROPProtocolTestSuite {
     constructor() {
@@ -94,7 +95,7 @@ class BROPProtocolTestSuite {
 
     async testBROPWebSocketConnection() {
         return new Promise((resolve, reject) => {
-            const ws = new WebSocket(`ws://localhost:${this.bropPort}`);
+            const ws = createNamedBROPConnection('brop-connection-test');
             
             ws.on('open', () => {
                 ws.close();
@@ -274,27 +275,84 @@ class BROPProtocolTestSuite {
 
     async testBROPConsoleCommands() {
         return new Promise((resolve, reject) => {
-            const ws = new WebSocket(`ws://localhost:${this.bropPort}`);
+            const ws = createNamedBROPConnection('console-command-test');
+            let messageCounter = 0;
+            let currentTabId = null;
             
             ws.on('open', () => {
-                const message = {
+                // First get available tabs
+                const listTabsMessage = {
                     id: this.getNextMessageId(),
-                    method: 'get_console_logs',
-                    params: {
-                        limit: 10
-                    }
+                    method: 'list_tabs',
+                    params: {}
                 };
-                ws.send(JSON.stringify(message));
+                ws.send(JSON.stringify(listTabsMessage));
             });
             
             ws.on('message', (data) => {
                 try {
                     const response = JSON.parse(data.toString());
-                    ws.close();
-                    resolve({
-                        success: response.success !== false,
-                        hasLogs: response.result && Array.isArray(response.result.logs)
-                    });
+                    messageCounter++;
+                    
+                    if (messageCounter === 1 && response.success && response.result.tabs) {
+                        // Find an accessible tab or create one
+                        const accessibleTab = response.result.tabs.find(tab => 
+                            tab.accessible && !tab.url.includes('chrome://')
+                        );
+                        
+                        if (accessibleTab) {
+                            currentTabId = accessibleTab.tabId;
+                            // Now get console logs
+                            const consoleMessage = {
+                                id: this.getNextMessageId(),
+                                method: 'get_console_logs',
+                                params: {
+                                    tabId: currentTabId,
+                                    limit: 10
+                                }
+                            };
+                            ws.send(JSON.stringify(consoleMessage));
+                        } else {
+                            // Create a new tab first
+                            const createTabMessage = {
+                                id: this.getNextMessageId(),
+                                method: 'create_tab',
+                                params: { url: 'https://example.com' }
+                            };
+                            ws.send(JSON.stringify(createTabMessage));
+                        }
+                    } else if (messageCounter === 2 && response.success) {
+                        if (response.result.tabId) {
+                            // Tab created, now get console logs
+                            currentTabId = response.result.tabId;
+                            const consoleMessage = {
+                                id: this.getNextMessageId(),
+                                method: 'get_console_logs',
+                                params: {
+                                    tabId: currentTabId,
+                                    limit: 10
+                                }
+                            };
+                            ws.send(JSON.stringify(consoleMessage));
+                        } else {
+                            // This was the console logs response
+                            ws.close();
+                            resolve({
+                                success: response.success !== false,
+                                hasLogs: response.result && Array.isArray(response.result.logs)
+                            });
+                        }
+                    } else if (messageCounter === 3 && response.success) {
+                        // Console logs response after tab creation
+                        ws.close();
+                        resolve({
+                            success: response.success !== false,
+                            hasLogs: response.result && Array.isArray(response.result.logs)
+                        });
+                    } else if (!response.success) {
+                        ws.close();
+                        reject(new Error(`BROP console command error: ${response.error}`));
+                    }
                 } catch (error) {
                     reject(new Error(`BROP console command error: ${error.message}`));
                 }
@@ -306,28 +364,86 @@ class BROPProtocolTestSuite {
 
     async testBROPScreenshotCommand() {
         return new Promise((resolve, reject) => {
-            const ws = new WebSocket(`ws://localhost:${this.bropPort}`);
+            const ws = createNamedBROPConnection('screenshot-command-test');
+            let messageCounter = 0;
+            let currentTabId = null;
             
             ws.on('open', () => {
-                const message = {
+                // First get available tabs
+                const listTabsMessage = {
                     id: this.getNextMessageId(),
-                    method: 'get_screenshot',
-                    params: {
-                        format: 'png',
-                        quality: 80
-                    }
+                    method: 'list_tabs',
+                    params: {}
                 };
-                ws.send(JSON.stringify(message));
+                ws.send(JSON.stringify(listTabsMessage));
             });
             
             ws.on('message', (data) => {
                 try {
                     const response = JSON.parse(data.toString());
-                    ws.close();
-                    resolve({
-                        success: response.success !== false,
-                        hasImageData: response.result && !!response.result.image_data
-                    });
+                    messageCounter++;
+                    
+                    if (messageCounter === 1 && response.success && response.result.tabs) {
+                        // Find an accessible tab or create one
+                        const accessibleTab = response.result.tabs.find(tab => 
+                            tab.accessible && !tab.url.includes('chrome://')
+                        );
+                        
+                        if (accessibleTab) {
+                            currentTabId = accessibleTab.tabId;
+                            // Now take screenshot
+                            const screenshotMessage = {
+                                id: this.getNextMessageId(),
+                                method: 'get_screenshot',
+                                params: {
+                                    tabId: currentTabId,
+                                    format: 'png',
+                                    quality: 80
+                                }
+                            };
+                            ws.send(JSON.stringify(screenshotMessage));
+                        } else {
+                            // Create a new tab first
+                            const createTabMessage = {
+                                id: this.getNextMessageId(),
+                                method: 'create_tab',
+                                params: { url: 'https://example.com' }
+                            };
+                            ws.send(JSON.stringify(createTabMessage));
+                        }
+                    } else if (messageCounter === 2 && response.success) {
+                        if (response.result.tabId) {
+                            // Tab created, now take screenshot
+                            currentTabId = response.result.tabId;
+                            const screenshotMessage = {
+                                id: this.getNextMessageId(),
+                                method: 'get_screenshot',
+                                params: {
+                                    tabId: currentTabId,
+                                    format: 'png',
+                                    quality: 80
+                                }
+                            };
+                            ws.send(JSON.stringify(screenshotMessage));
+                        } else {
+                            // This was the screenshot response
+                            ws.close();
+                            resolve({
+                                success: response.success !== false,
+                                hasImageData: response.result && !!response.result.image_data
+                            });
+                        }
+                    } else if (messageCounter === 3 && response.success) {
+                        // Screenshot response after tab creation
+                        ws.close();
+                        resolve({
+                            success: response.success !== false,
+                            hasImageData: response.result && !!response.result.image_data
+                        });
+                    } else if (!response.success) {
+                        ws.close();
+                        reject(new Error(`BROP screenshot command error: ${response.error}`));
+                    }
                 } catch (error) {
                     reject(new Error(`BROP screenshot command error: ${error.message}`));
                 }

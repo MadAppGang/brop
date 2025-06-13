@@ -3,8 +3,7 @@
  * Test real console logs from a website that naturally produces console output
  */
 
-const WebSocket = require('ws');
-const { createBROPConnection } = require('../../client');
+const { createNamedBROPConnection } = require('../../client');
 
 async function testRealConsoleLogs() {
     console.log('🌐 Testing Real Console Logs');
@@ -13,7 +12,7 @@ async function testRealConsoleLogs() {
     console.log('📋 We will open GitHub which often has console output');
     console.log('');
 
-    const ws = createBROPConnection();
+    const ws = createNamedBROPConnection('real-console-logs-test');
     let requestId = 1;
     let currentTabId = null;
 
@@ -68,19 +67,19 @@ async function testRealConsoleLogs() {
                 }
             }, 10000);
 
-            // Get plugin logs
+            // Get recent logs again to see new activity
             setTimeout(() => {
                 if (currentTabId) {
-                    console.log('\n📍 STEP 6: Getting plugin console logs...');
-                    const pluginLogsCommand = {
+                    console.log('\n📍 STEP 6: Getting recent console activity...');
+                    const recentLogsCommand = {
                         id: requestId++,
-                        method: 'get_plugin_console_logs',
+                        method: 'get_console_logs',
                         params: { 
                             tabId: currentTabId,
                             limit: 10 
                         }
                     };
-                    ws.send(JSON.stringify(pluginLogsCommand));
+                    ws.send(JSON.stringify(recentLogsCommand));
                 }
             }, 13000);
 
@@ -232,12 +231,11 @@ async function testRealConsoleLogs() {
                             
                         case 5:
                         case 6:
-                            console.log(`   ✅ Retrieved ${message.result.logs.length} plugin console logs`);
-                            console.log(`   📊 Source: ${message.result.source}`);
-                            console.log(`   💾 Total stored: ${message.result.total_stored}`);
+                            console.log(`   ✅ Retrieved ${message.result.logs.length} recent console logs`);
+                            console.log(`   📊 Source: ${message.result.source || 'unknown'}`);
                             
                             if (message.result.logs.length > 0) {
-                                console.log('\n   📋 RECENT PLUGIN CONSOLE LOGS:');
+                                console.log('\n   📋 RECENT CONSOLE ACTIVITY:');
                                 console.log('   ' + '='.repeat(80));
                                 message.result.logs.slice(0, 5).forEach((log, index) => {
                                     const time = new Date(log.timestamp).toLocaleTimeString();
