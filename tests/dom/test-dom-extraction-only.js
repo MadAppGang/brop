@@ -1,5 +1,5 @@
 const WebSocket = require('ws');
-const { createBROPConnection } = require('../../test-utils');
+const { createBROPConnection } = require('../../client');
 
 async function testDOMExtractionOnly() {
     console.log('🧪 BROP DOM Extraction Only Test');

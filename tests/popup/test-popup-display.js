@@ -1,100 +1,125 @@
-const WebSocket = require('ws');
-const { createNamedBROPConnection } = require('../../test-utils');
+const { createPage, createNamedBROPConnection } = require('../../client');
 
 async function testPopupDisplay() {
     console.log('🧪 Simple Popup Display Test');
     console.log('============================');
     console.log('📋 This script will generate various log entries for popup testing');
     
-    const ws = createNamedBROPConnection('popup-display-test');
+    let page = null;
+    let ws = null;
     
-    return new Promise((resolve, reject) => {
-        let messageId = 0;
-        let testCount = 0;
+    try {
+        // First generate some logs with low-level commands
+        console.log('\n📋 Step 1: Testing connection commands...');
+        ws = createNamedBROPConnection('popup-display-test');
         
-        const commands = [
-            { name: 'List Tabs', method: 'list_tabs', params: {} },
-            { name: 'Get Errors', method: 'get_extension_errors', params: { limit: 3 } },
-            { name: 'Create Tab', method: 'create_tab', params: { url: 'https://example.com' } },
-            { name: 'Invalid Command', method: 'invalid_test_command', params: {} },
-            { name: 'Navigation', method: 'navigate', params: { url: 'https://google.com' } }
-        ];
-        
-        ws.on('open', function open() {
-            console.log('✅ Connected to BROP bridge');
-            console.log('\n📋 Generating log entries...');
-            sendNextCommand();
+        await new Promise((resolve, reject) => {
+            ws.on('open', () => {
+                console.log('✅ Connected to BROP bridge');
+                resolve();
+            });
+            ws.on('error', reject);
         });
         
-        function sendNextCommand() {
-            if (testCount >= commands.length) {
-                console.log('\n🎉 All commands sent! Log entries generated.');
-                console.log('\n📱 Now test the popup:');
-                console.log('=====================================');
-                console.log('1. 🔍 Open Chrome extension popup (click BROP icon)');
-                console.log('2. 📋 Check that you see these method names in the log list:');
-                commands.forEach((cmd, i) => {
-                    console.log(`   ${i + 1}. "${cmd.method}" (${cmd.name})`);
-                });
-                console.log('\n3. 🖱️  Click on any log entry to open details window');
-                console.log('4. 🔍 Verify in details window:');
-                console.log('   - Title shows method name (e.g., "BROP Log Details - list_tabs")');
-                console.log('   - Header shows method name');
-                console.log('   - "Method:" field shows correct value');
-                console.log('   - NO "undefined" or "Unknown" should appear');
-                
-                console.log('\n✅ Expected Results:');
-                console.log('   - All method names display correctly');
-                console.log('   - Success/error status shows properly');
-                console.log('   - Details window opens with correct information');
-                console.log('   - No formatting issues or undefined values');
-                
-                setTimeout(() => {
-                    ws.close();
-                    resolve();
-                }, 1000);
-                return;
-            }
-            
-            const cmd = commands[testCount];
-            console.log(`   ${testCount + 1}. Sending "${cmd.method}" (${cmd.name})...`);
-            
-            ws.send(JSON.stringify({
-                id: ++messageId,
-                method: cmd.method,
-                params: cmd.params
-            }));
-            
-            testCount++;
+        // Test list_tabs and get_extension_errors
+        const listTabsResult = await sendCommand(ws, 'list_tabs', {});
+        console.log(`   ✅ list_tabs: Found ${listTabsResult.tabs ? listTabsResult.tabs.length : 0} tabs`);
+        
+        const errorsResult = await sendCommand(ws, 'get_extension_errors', { limit: 3 });
+        console.log(`   ✅ get_extension_errors: ${errorsResult.errors ? errorsResult.errors.length : 0} errors`);
+        
+        // Step 2: Use Page class for tab management
+        console.log('\n📋 Step 2: Testing Page class operations...');
+        page = await createPage('https://example.com', 'popup-display-page');
+        console.log(`   ✅ Page created: ${page.toString()}`);
+        
+        // Get page content
+        const content = await page.getContent();
+        console.log(`   ✅ get_page_content: ${content.title}`);
+        
+        // Navigate
+        await page.navigate('https://httpbin.org/html');
+        console.log(`   ✅ navigate: Successfully navigated`);
+        
+        // Get console logs
+        const logs = await page.getConsoleLogs({ limit: 5 });
+        console.log(`   ✅ get_console_logs: ${logs.logs ? logs.logs.length : 0} logs`);
+        
+        console.log('\n🎉 All commands executed! Log entries generated.');
+        
+        console.log('\n📱 Now test the popup:');
+        console.log('=====================================');
+        console.log('1. 🔍 Open Chrome extension popup (click BROP icon)');
+        console.log('2. 📋 Check that you see these method names in the log list:');
+        console.log('   - "list_tabs" (List Tabs)');
+        console.log('   - "get_extension_errors" (Get Errors)');
+        console.log('   - "create_tab" (Create Tab)');
+        console.log('   - "get_page_content" (Get Page Content)');
+        console.log('   - "navigate" (Navigation)');
+        console.log('   - "get_console_logs" (Get Console Logs)');
+        console.log('\n3. 🖱️  Click on any log entry to open details window');
+        console.log('4. 🔍 Verify in details window:');
+        console.log('   - Title shows method name (e.g., "BROP Log Details - list_tabs")');
+        console.log('   - Header shows method name');
+        console.log('   - "Method:" field shows correct value');
+        console.log('   - NO "undefined" or "Unknown" should appear');
+        
+        console.log('\n✅ Expected Results:');
+        console.log('   - All method names display correctly');
+        console.log('   - Success/error status shows properly');
+        console.log('   - Details window opens with correct information');
+        console.log('   - No formatting issues or undefined values');
+        
+    } catch (error) {
+        console.error(`\n❌ Test failed: ${error.message}`);
+    } finally {
+        // Cleanup
+        console.log('\n🧹 Cleaning up...');
+        if (page) {
+            await page.close();
+            console.log('   ✅ Page closed');
         }
-        
-        ws.on('message', function message(data) {
-            const response = JSON.parse(data);
-            const cmd = commands[testCount - 1];
-            
-            const status = response.success ? '✅ SUCCESS' : '❌ FAILED';
-            console.log(`      ${status}`);
-            
-            if (!response.success && response.error) {
-                console.log(`      Error: ${response.error.substring(0, 50)}...`);
-            }
-            
-            // Send next command after a short delay
-            setTimeout(sendNextCommand, 300);
-        });
-        
-        ws.on('close', function close() {
-            console.log('\n🔌 Disconnected from bridge');
-        });
-        
-        ws.on('error', reject);
-        
-        // Timeout after 15 seconds
-        setTimeout(() => {
-            console.log('\n⏰ Test timeout');
+        if (ws) {
             ws.close();
-            resolve();
-        }, 15000);
+            console.log('   ✅ Connection closed');
+        }
+    }
+}
+
+// Helper function to send commands with promises
+function sendCommand(ws, method, params) {
+    return new Promise((resolve, reject) => {
+        const id = Date.now().toString();
+        
+        const message = {
+            id,
+            method,
+            params
+        };
+        
+        const timeout = setTimeout(() => {
+            reject(new Error(`Command timeout: ${method}`));
+        }, 10000);
+        
+        const messageHandler = (data) => {
+            try {
+                const response = JSON.parse(data.toString());
+                if (response.id === id) {
+                    clearTimeout(timeout);
+                    ws.off('message', messageHandler);
+                    if (response.success) {
+                        resolve(response.result);
+                    } else {
+                        reject(new Error(response.error || 'Command failed'));
+                    }
+                }
+            } catch (error) {
+                // Ignore parse errors for other messages
+            }
+        };
+        
+        ws.on('message', messageHandler);
+        ws.send(JSON.stringify(message));
     });
 }
 

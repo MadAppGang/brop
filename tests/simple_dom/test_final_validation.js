@@ -4,7 +4,7 @@
  */
 
 const WebSocket = require('ws');
-const { createBROPConnection, createNamedBROPConnection } = require('../../test-utils');
+const { createBROPConnection, createNamedBROPConnection } = require('../../client');
 
 async function validateAllFeatures() {
     console.log('🎯 Final BROP System Validation');

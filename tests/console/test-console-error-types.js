@@ -4,7 +4,7 @@
  */
 
 const WebSocket = require('ws');
-const { createBROPConnection } = require('../../test-utils');
+const { createBROPConnection } = require('../../client');
 
 async function testConsoleErrorTypes() {
     console.log('🧪 Testing Different Console Error Types');

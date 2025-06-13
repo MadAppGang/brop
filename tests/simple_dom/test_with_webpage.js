@@ -4,7 +4,7 @@
  */
 
 const WebSocket = require('ws');
-const { createNamedBROPConnection } = require('../../test-utils');
+const { createNamedBROPConnection } = require('../../client');
 
 async function testWithWebpage() {
     console.log('🌐 Testing BROP with Active Webpage');

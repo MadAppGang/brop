@@ -4,7 +4,7 @@
  */
 
 const WebSocket = require('ws');
-const { createBROPConnection } = require('../../test-utils');
+const { createBROPConnection } = require('../../client');
 
 async function testDebugConsoleCapture() {
     console.log('🔍 Debug Console Capture Test');

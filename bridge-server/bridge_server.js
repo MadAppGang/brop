@@ -780,8 +780,6 @@ class BROPBridgeServer {
     const eventType = eventData.event_type;
     const tabId = eventData.tabId;
 
-    this.log(`🔧 DEBUG: Processing event: ${eventType} for tab: ${tabId}`);
-
     // If this is a tab-specific event, only broadcast to subscribed clients
     if (tabId && this.tabEventSubscriptions.has(tabId)) {
       const subscribers = this.tabEventSubscriptions.get(tabId);

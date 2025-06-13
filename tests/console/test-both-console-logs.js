@@ -4,7 +4,7 @@
  */
 
 const WebSocket = require('ws');
-const { createBROPConnection } = require('../../test-utils');
+const { createBROPConnection } = require('../../client');
 
 async function testBothConsoleLogs() {
     console.log('🌐 Testing Console Log BROP Commands');

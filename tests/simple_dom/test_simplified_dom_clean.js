@@ -4,7 +4,7 @@
  */
 
 const WebSocket = require('ws');
-const { createNamedBROPConnection } = require('../../test-utils');
+const { createNamedBROPConnection } = require('../../client');
 
 async function testSimplifiedDOMClean() {
     console.log('🌳 Clean Test: BROP Simplified DOM Feature');

@@ -1,5 +1,5 @@
 const WebSocket = require('ws');
-const { createBROPConnection } = require('../../test-utils');
+const { createBROPConnection } = require('../../client');
 
 async function testGitHubLogsDirect() {
     console.log('📜 Testing GitHub Console Logs (Direct Capture)');

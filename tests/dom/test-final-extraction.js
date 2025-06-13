@@ -1,5 +1,5 @@
 const WebSocket = require('ws');
-const { createBROPConnection } = require('../../test-utils');
+const { createBROPConnection } = require('../../client');
 
 async function testFinalExtraction() {
     console.log('🧪 Final Extraction Test - Both Libraries');
