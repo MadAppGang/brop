@@ -32,15 +32,13 @@ async function testWikipediaExtraction() {
             });
 
             // Test 1: Navigate to Wikipedia
-            console.log('\n🌐 Test 1: Navigating to Wikipedia...');
-            const navCommand = {
+            console.log('\n🌐 Test 1: Creating tab and navigating to Wikipedia...');
+            const createCommand = {
                 id: requestId++,
-                command: {
-                    type: 'navigate',
-                    params: { url: 'https://en.wikipedia.org/wiki/Chrome_browser' }
-                }
+                method: 'create_tab',
+                params: { url: 'https://en.wikipedia.org/wiki/Chrome_browser' }
             };
-            ws.send(JSON.stringify(navCommand));
+            ws.send(JSON.stringify(createCommand));
 
             // Wait a moment
             setTimeout(() => {
@@ -48,10 +46,8 @@ async function testWikipediaExtraction() {
                 console.log('\n📄 Test 2: Getting page content...');
                 const contentCommand = {
                     id: requestId++,
-                    command: {
-                        type: 'get_page_content',
-                        params: {}
-                    }
+                    method: 'get_page_content',
+                    params: {}
                 };
                 ws.send(JSON.stringify(contentCommand));
             }, 3000);
@@ -62,11 +58,9 @@ async function testWikipediaExtraction() {
                 console.log('\n🔍 Test 3: Extracting page title...');
                 const jsCommand = {
                     id: requestId++,
-                    command: {
-                        type: 'execute_console',
-                        params: { 
-                            code: 'JSON.stringify({title: document.title, wordCount: document.body.innerText.split(" ").length})'
-                        }
+                    method: 'execute_console',
+                    params: { 
+                        code: 'JSON.stringify({title: document.title, wordCount: document.body.innerText.split(" ").length})'
                     }
                 };
                 ws.send(JSON.stringify(jsCommand));
@@ -78,12 +72,10 @@ async function testWikipediaExtraction() {
                 console.log('\n🌳 Test 4: Getting simplified DOM...');
                 const domCommand = {
                     id: requestId++,
-                    command: {
-                        type: 'get_simplified_dom',
-                        params: { 
-                            format: 'markdown',
-                            max_depth: 3
-                        }
+                    method: 'get_simplified_dom',
+                    params: { 
+                        format: 'markdown',
+                        max_depth: 3
                     }
                 };
                 ws.send(JSON.stringify(domCommand));
@@ -94,24 +86,22 @@ async function testWikipediaExtraction() {
                 console.log('\n📖 Test 5: Extracting Wikipedia data...');
                 const extractCommand = {
                     id: requestId++,
-                    command: {
-                        type: 'execute_console',
-                        params: { 
-                            code: `
-                                // Simple Wikipedia extraction
-                                const title = document.title.replace(' - Wikipedia', '');
-                                const summary = document.querySelector('#mw-content-text p')?.textContent.substring(0, 300) || 'No summary found';
-                                const headings = Array.from(document.querySelectorAll('h2 .mw-headline')).map(h => h.textContent).slice(0, 5);
-                                
-                                JSON.stringify({
-                                    title: title,
-                                    url: window.location.href,
-                                    summary: summary + '...',
-                                    sections: headings,
-                                    wordCount: document.body.innerText.split(' ').length
-                                });
-                            `
-                        }
+                    method: 'execute_console',
+                    params: { 
+                        code: `
+                            // Simple Wikipedia extraction
+                            const title = document.title.replace(' - Wikipedia', '');
+                            const summary = document.querySelector('#mw-content-text p')?.textContent.substring(0, 300) || 'No summary found';
+                            const headings = Array.from(document.querySelectorAll('h2 .mw-headline')).map(h => h.textContent).slice(0, 5);
+                            
+                            JSON.stringify({
+                                title: title,
+                                url: window.location.href,
+                                summary: summary + '...',
+                                sections: headings,
+                                wordCount: document.body.innerText.split(' ').length
+                            });
+                        `
                     }
                 };
                 ws.send(JSON.stringify(extractCommand));
@@ -122,10 +112,8 @@ async function testWikipediaExtraction() {
                 console.log('\n📸 Test 6: Taking screenshot...');
                 const screenshotCommand = {
                     id: requestId++,
-                    command: {
-                        type: 'get_screenshot',
-                        params: { format: 'png' }
-                    }
+                    method: 'get_screenshot',
+                    params: { format: 'png' }
                 };
                 ws.send(JSON.stringify(screenshotCommand));
             }, 15000);

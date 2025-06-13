@@ -176,7 +176,7 @@ class WikipediaBROPTest {
 
     async connect() {
         return new Promise((resolve, reject) => {
-            this.ws = new WebSocket('ws://localhost:9222');
+            this.ws = new WebSocket('ws://localhost:9223');
 
             this.ws.on('open', () => {
                 console.log('   ✅ Connected to BROP bridge server');
@@ -211,19 +211,16 @@ class WikipediaBROPTest {
         });
     }
 
-    async sendBROPCommand(type, params) {
+    async sendBROPCommand(method, params) {
         return new Promise((resolve, reject) => {
             const id = this.requestId++;
             
             this.responses.set(id, { resolve, reject });
             
             const message = {
-                type: 'brop_command',
                 id: id,
-                command: {
-                    type: type,
-                    params: params
-                }
+                method: method,
+                params: params
             };
 
             this.ws.send(JSON.stringify(message));
@@ -232,7 +229,7 @@ class WikipediaBROPTest {
             setTimeout(() => {
                 if (this.responses.has(id)) {
                     this.responses.delete(id);
-                    reject(new Error(`Timeout waiting for ${type} command`));
+                    reject(new Error(`Timeout waiting for ${method} command`));
                 }
             }, 15000);
         });

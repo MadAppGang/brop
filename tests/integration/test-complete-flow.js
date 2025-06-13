@@ -10,28 +10,28 @@ async function runCompleteTestFlow() {
   const tests = [
     {
       name: 'Extension Reload',
-      file: 'debug-reload.js',
+      file: 'tests/debug/debug-reload.js',
       description: 'Test extension reload functionality'
     },
     {
       name: 'Explicit Tab Management',
-      file: 'test-explicit-tabs.js',
+      file: 'tests/integration/test-explicit-tabs.js',
       description: 'Test strict tab targeting with explicit tabIds'
     },
     {
-      name: 'Simple Debug',
-      file: 'test-simple-debug.js', 
-      description: 'Basic console log capture test (will fail - needs tabId)'
+      name: 'Console Logs Test',
+      file: 'tests/console/test-console-logs.js', 
+      description: 'Test console log capture with proper tabId handling'
     },
     {
       name: 'Runtime Messaging',
-      file: 'test-runtime-messaging.js',
-      description: 'Test chrome.runtime.sendMessage approach (will fail - needs tabId)'
+      file: 'tests/console/test-runtime-messaging.js',
+      description: 'Test chrome.runtime.sendMessage approach'
     },
     {
       name: 'CSP Success',
-      file: 'test-csp-success.js',
-      description: 'Verify CSP compliance (will fail - needs tabId)'
+      file: 'tests/integration/test-csp-success.js',
+      description: 'Verify CSP compliance'
     }
   ];
 

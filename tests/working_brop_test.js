@@ -2,11 +2,9 @@
 /**
  * Working BROP Test
  * 
- * Create a test that works around the newPage() issue by using
- * direct CDP calls or alternative approaches.
+ * Test BROP functionality without external dependencies
  */
 
-const { chromium } = require('playwright');
 const WebSocket = require('ws');
 
 async function testDirectCdpControl() {
