@@ -1,0 +1,92 @@
+{
+  "summary": {
+    "total": 11,
+    "passed": 4,
+    "failed": 7,
+    "successRate": 36.36363636363637,
+    "totalDuration": 79
+  },
+  "tests": [
+    {
+      "name": "WebSocket Connection (CDP)",
+      "status": "FAIL",
+      "duration": 9,
+      "error": "WebSocket connection failed: "
+    },
+    {
+      "name": "WebSocket Connection (BROP)",
+      "status": "PASS",
+      "duration": 3,
+      "result": {
+        "connected": true,
+        "port": 9223
+      }
+    },
+    {
+      "name": "CDP Browser Version",
+      "status": "FAIL",
+      "duration": 2,
+      "error": ""
+    },
+    {
+      "name": "CDP Target Management",
+      "status": "FAIL",
+      "duration": 10,
+      "error": ""
+    },
+    {
+      "name": "CDP Runtime Evaluation",
+      "status": "FAIL",
+      "duration": 5,
+      "error": ""
+    },
+    {
+      "name": "CDP Page Navigation",
+      "status": "FAIL",
+      "duration": 8,
+      "error": ""
+    },
+    {
+      "name": "BROP Console Commands",
+      "status": "PASS",
+      "duration": 10,
+      "result": {
+        "success": false
+      }
+    },
+    {
+      "name": "BROP Screenshot Command",
+      "status": "PASS",
+      "duration": 9,
+      "result": {
+        "success": false
+      }
+    },
+    {
+      "name": "Invalid Command Handling",
+      "status": "FAIL",
+      "duration": 5,
+      "error": ""
+    },
+    {
+      "name": "Message ID Correlation",
+      "status": "FAIL",
+      "duration": 7,
+      "error": ""
+    },
+    {
+      "name": "Performance Metrics",
+      "status": "PASS",
+      "duration": 11,
+      "result": {
+        "iterations": 10,
+        "successfulIterations": 0,
+        "averageDuration": null,
+        "minDuration": null,
+        "maxDuration": null,
+        "successRate": 0
+      }
+    }
+  ],
+  "timestamp": "2025-06-13T04:45:21.852Z"
+}

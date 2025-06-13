@@ -21,8 +21,8 @@ class TableLogger {
     this.statusWidth = 3;   // Status: ✅ or ❌ or 🔗 or 🔌
     this.typeWidth = 6;     // Type: BROP, EXT, SYS
     this.commandWidth = 20; // Command/Event name
-    this.connWidth = 45;    // Connection info (increased from 35 to 45)
-    this.errorWidth = 40;   // Error message (if any)
+    this.connWidth = 50;    // Connection info (increased from 35 to 45)
+    this.errorWidth = 20;   // Error message (if any)
   }
 
   getTimestamp() {
@@ -31,19 +31,19 @@ class TableLogger {
 
   formatField(text, width, align = 'left') {
     const str = String(text || '').slice(0, width);
-    
+
     // Special handling for emoji status characters
     if (str === '✅' || str === '❌' || str === '🔗' || str === '🔌') {
       // Create a fixed-width field for emoji
       return str.padEnd(1) + ' '.repeat(width - 1);
     }
-    
+
     return align === 'right' ? str.padStart(width) : str.padEnd(width);
   }
 
   formatRow(status, type, command, connection, error = '') {
     const timestamp = this.getTimestamp();
-    
+
     const parts = [
       this.formatField(timestamp, this.tsWidth),
       this.formatField(status, this.statusWidth),
@@ -52,7 +52,7 @@ class TableLogger {
       this.formatField(connection, this.connWidth),
       this.formatField(error, this.errorWidth) // Always include error column, even if empty
     ];
-    
+
     return parts.join(' │ ');
   }
 
@@ -90,25 +90,28 @@ class BROPBridgeServer {
     this.startTime = Date.now();
     this.extensionClient = null;
     this.bropClients = new Set();
-    
+
     // Connection tracking
     this.connectionCounter = 0;
     this.clientConnections = new Map(); // Map client -> connection info
-    
+
     // Message routing
     this.pendingBropRequests = new Map();
     this.messageCounter = 0;
-    
+
+    // Tab event subscriptions: tabId -> Set of clients
+    this.tabEventSubscriptions = new Map();
+
     // Server instances
     this.bropServer = null;
     this.extensionServer = null;
-    
+
     this.running = false;
-    
+
     // Log storage for debugging endpoint
     this.logs = [];
     this.maxLogs = 1000; // Keep last 1000 log entries
-    
+
     // Table logger
     this.logger = new TableLogger();
   }
@@ -122,14 +125,14 @@ class BROPBridgeServer {
       fullMessage: args.length > 0 ? `${message} ${args.join(' ')}` : message,
       level: 'info'
     };
-    
+
     this.logs.push(logEntry);
-    
+
     // Keep only the last maxLogs entries
     if (this.logs.length > this.maxLogs) {
       this.logs.splice(0, this.logs.length - this.maxLogs);
     }
-    
+
     // Use system logging for non-structured messages
     this.logger.logSystem(message);
   }
@@ -143,38 +146,38 @@ class BROPBridgeServer {
   getConnectionDisplay(client) {
     const clientInfo = this.clientConnections.get(client);
     if (!clientInfo) return 'unknown';
-    
+
     return clientInfo.name ? `${clientInfo.id}:${clientInfo.name}` : clientInfo.id;
   }
 
   async startServers() {
     this.running = true;
-    
+
     try {
       // Print table header for structured logging
       this.logger.printHeader();
-      
+
       // Start BROP server (for BROP clients)
-      this.bropServer = new WebSocket.Server({ 
+      this.bropServer = new WebSocket.Server({
         port: 9223,
-        perMessageDeflate: false 
+        perMessageDeflate: false
       });
       this.bropServer.on('connection', (ws, req) => {
         this.handleBropClient(ws, req);
       });
       this.log('🔧 BROP Server started on ws://localhost:9223');
-      
+
       // Start Extension WebSocket server (extension connects as client)
-      this.extensionServer = new WebSocket.Server({ 
+      this.extensionServer = new WebSocket.Server({
         port: 9224,
-        perMessageDeflate: false 
+        perMessageDeflate: false
       });
       this.extensionServer.on('connection', (ws, req) => {
         this.handleExtensionClient(ws, req);
       });
       this.log('🔌 Extension Server started on ws://localhost:9224');
       this.log('📡 Waiting for Chrome extension to connect...');
-      
+
     } catch (error) {
       console.error('Failed to start servers:', error);
       throw error;
@@ -183,19 +186,19 @@ class BROPBridgeServer {
 
   handleHttpRequest(req, res) {
     const pathname = url.parse(req.url).pathname;
-    
+
     // Enable CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     res.setHeader('Content-Type', 'application/json');
-    
+
     if (req.method === 'OPTIONS') {
       res.writeHead(200);
       res.end();
       return;
     }
-    
+
     if (pathname === '/json/version') {
       res.writeHead(200);
       res.end(JSON.stringify(this.browserInfo));
@@ -206,19 +209,19 @@ class BROPBridgeServer {
     } else if (pathname === '/logs') {
       // Return bridge server logs for debugging
       const urlParams = new URLSearchParams(url.parse(req.url).query);
-      const limit = parseInt(urlParams.get('limit')) || this.logs.length;
+      const limit = Number.parseInt(urlParams.get('limit')) || this.logs.length;
       const level = urlParams.get('level'); // filter by log level if provided
-      
+
       let filteredLogs = this.logs;
-      
+
       // Filter by level if specified
       if (level) {
         filteredLogs = this.logs.filter(log => log.level === level);
       }
-      
+
       // Limit results
       const logsToReturn = filteredLogs.slice(-limit);
-      
+
       const response = {
         total: this.logs.length,
         filtered: filteredLogs.length,
@@ -226,7 +229,7 @@ class BROPBridgeServer {
         maxLogs: this.maxLogs,
         logs: logsToReturn
       };
-      
+
       res.writeHead(200);
       res.end(JSON.stringify(response, null, 2));
     } else {
@@ -238,23 +241,23 @@ class BROPBridgeServer {
   handleExtensionClient(ws, req) {
     this.logger.logConnect('EXT', 'extension');
     this.extensionClient = ws;
-    
+
     // Send welcome message
     ws.send(JSON.stringify({
       type: 'welcome',
       message: 'BROP Bridge Server - Extension connected successfully',
       timestamp: Date.now()
     }));
-    
+
     ws.on('message', (message) => {
       this.processExtensionMessage(message.toString());
     });
-    
+
     ws.on('close', () => {
       this.logger.logDisconnect('EXT', 'extension');
       this.extensionClient = null;
     });
-    
+
     ws.on('error', (error) => {
       console.error('Extension client error:', error);
     });
@@ -263,7 +266,7 @@ class BROPBridgeServer {
   handleCdpClient(ws, req) {
     const pathname = url.parse(req.url).pathname;
     this.log(`🎭 CDP client connected: ${pathname}`);
-    
+
     // Create session info for this client
     const sessionInfo = {
       client: ws,
@@ -272,23 +275,23 @@ class BROPBridgeServer {
       targetId: null, // Will be set when target is created/attached
       connectionTime: Date.now()
     };
-    
+
     this.cdpClients.add(ws);
     this.clientSessions.set(ws, sessionInfo);
-    
+
     this.log(`🎭 Created session: ${sessionInfo.sessionId} for path: ${pathname}`);
-    
+
     ws.on('message', (message) => {
       this.processCdpMessage(ws, message.toString());
     });
-    
+
     ws.on('close', () => {
       // Clean up all mappings for this client
       const sessionInfoForCleanup = this.clientSessions.get(ws);
       this.log(`🎭 CDP client disconnected: ${sessionInfoForCleanup?.sessionId || 'unknown'}`);
       this.cdpClients.delete(ws);
       this.clientSessions.delete(ws);
-      
+
       // Clean up target mappings
       for (const [targetId, client] of this.targetToClient.entries()) {
         if (client === ws) {
@@ -296,7 +299,7 @@ class BROPBridgeServer {
           this.log(`🎯 Cleaned up target mapping: ${targetId}`);
         }
       }
-      
+
       // Clean up session mappings
       for (const [sessionId, client] of this.sessionToClient.entries()) {
         if (client === ws) {
@@ -306,7 +309,7 @@ class BROPBridgeServer {
         }
       }
     });
-    
+
     ws.on('error', (error) => {
       console.error('CDP client error:', error);
     });
@@ -315,37 +318,46 @@ class BROPBridgeServer {
   handleBropClient(ws, req) {
     // Generate unique connection ID
     const connectionId = `conn-${++this.connectionCounter}`;
-    
+
     // Extract client name from query parameters if provided
     const url = require('url');
     const queryParams = url.parse(req.url, true).query;
     const clientName = queryParams.name || null;
-    
+
     const clientInfo = {
       id: connectionId,
       name: clientName,
       connectedAt: Date.now(),
       remoteAddress: req.socket.remoteAddress || 'unknown'
     };
-    
+
     this.clientConnections.set(ws, clientInfo);
-    
+
     // Format connection display with name if provided
     const connectionDisplay = clientName ? `${connectionId}:${clientName}` : connectionId;
     this.logger.logConnect('BROP', connectionDisplay);
     this.bropClients.add(ws);
-    
+
     ws.on('message', (message) => {
       this.processBropMessage(ws, message.toString());
     });
-    
+
     ws.on('close', () => {
       const connectionDisplay = this.getConnectionDisplay(ws);
       this.logger.logDisconnect('BROP', connectionDisplay);
       this.bropClients.delete(ws);
       this.clientConnections.delete(ws);
+      
+      // Clean up event subscriptions for this client
+      for (const [tabId, subscribers] of this.tabEventSubscriptions.entries()) {
+        subscribers.delete(ws);
+        // Remove empty subscription sets
+        if (subscribers.size === 0) {
+          this.tabEventSubscriptions.delete(tabId);
+        }
+      }
     });
-    
+
     ws.on('error', (error) => {
       console.error('BROP client error:', error);
     });
@@ -355,7 +367,7 @@ class BROPBridgeServer {
     try {
       const data = JSON.parse(message);
       const messageType = data.type;
-      
+
       // Handle direct server status requests from extension
       if (data.method === 'get_server_status') {
         const messageId = data.id || this.getNextMessageId();
@@ -374,17 +386,17 @@ class BROPBridgeServer {
             timestamp: Date.now()
           }
         };
-        
+
         if (this.extensionClient && this.extensionClient.readyState === WebSocket.OPEN) {
           this.extensionClient.send(JSON.stringify(statusResponse));
         }
         return;
       }
-      
+
       if (messageType === 'response') {
         // Extension responding to a request
         const requestId = data.id;
-        
+
         // Check if this is a BROP response
         if (this.pendingBropRequests.has(requestId)) {
           const client = this.pendingBropRequests.get(requestId);
@@ -422,9 +434,9 @@ class BROPBridgeServer {
       const params = data.params || {};
       const messageId = data.id;
       const sessionId = data.sessionId; // Session-specific commands
-      
+
       this.log(`🎭 CDP: ${method} (id: ${messageId}) ${sessionId ? `session: ${sessionId}` : ''} params:`, JSON.stringify(params).substring(0, 100));
-      
+
       // Validate message structure before processing
       if (typeof messageId !== 'number' && typeof messageId !== 'string') {
         this.log(`⚠️ Invalid message ID type: ${typeof messageId}, value: ${messageId}`);
@@ -438,7 +450,7 @@ class BROPBridgeServer {
         client.send(JSON.stringify(errorResponse));
         return;
       }
-      
+
       if (!this.extensionClient || this.extensionClient.readyState !== WebSocket.OPEN) {
         // No extension connected
         this.log(`CDP command ${method} failed: Extension not connected`);
@@ -452,7 +464,7 @@ class BROPBridgeServer {
         client.send(JSON.stringify(errorResponse));
         return;
       }
-      
+
       // Convert CDP command to extension format
       const extensionMessage = {
         type: 'cdp_command',
@@ -460,28 +472,28 @@ class BROPBridgeServer {
         method: method,
         params: params
       };
-      
+
       // Store the client for response routing
       console.log(`🔧 DEBUG: Storing client for message ID ${messageId}, method: ${method}`);
       this.pendingCdpRequests.set(messageId, client);
-      
+
       // Track target creation requests for event routing
       if (method === 'Target.createTarget') {
         const sessionInfo = this.clientSessions.get(client);
         console.log(`🎯 Target creation request from session: ${sessionInfo?.sessionId}`);
       }
-      
+
       // Handle Target.getBrowserContexts - required by Puppeteer
       if (method === 'Target.getBrowserContexts') {
         console.log('🎯 Target.getBrowserContexts request');
-        
+
         const contextsResponse = {
           id: messageId,
           result: {
             browserContextIds: ['default'] // Return default context
           }
         };
-        
+
         console.log('🎯 Sending Target.getBrowserContexts response');
         client.send(JSON.stringify(contextsResponse));
         return;
@@ -490,7 +502,7 @@ class BROPBridgeServer {
       // Handle Browser.getVersion - often requested by Puppeteer
       if (method === 'Browser.getVersion') {
         console.log('🌐 Browser.getVersion request');
-        
+
         const versionResponse = {
           id: messageId,
           result: {
@@ -501,7 +513,7 @@ class BROPBridgeServer {
             jsVersion: '12.0.0'
           }
         };
-        
+
         console.log('🌐 Sending Browser.getVersion response');
         client.send(JSON.stringify(versionResponse));
         return;
@@ -510,12 +522,12 @@ class BROPBridgeServer {
       // Handle Runtime.enable - commonly needed for page operations
       if (method === 'Runtime.enable') {
         console.log('⚡ Runtime.enable request');
-        
+
         const enableResponse = {
           id: messageId,
           result: {}
         };
-        
+
         console.log('⚡ Sending Runtime.enable response');
         client.send(JSON.stringify(enableResponse));
         return;
@@ -524,12 +536,12 @@ class BROPBridgeServer {
       // Handle Page.enable - needed for page-level operations
       if (method === 'Page.enable') {
         console.log('📄 Page.enable request');
-        
+
         const enableResponse = {
           id: messageId,
           result: {}
         };
-        
+
         console.log('📄 Sending Page.enable response');
         client.send(JSON.stringify(enableResponse));
         return;
@@ -538,12 +550,12 @@ class BROPBridgeServer {
       // Handle Target.setDiscoverTargets - Puppeteer discovery mechanism
       if (method === 'Target.setDiscoverTargets') {
         console.log('🔍 Target.setDiscoverTargets request');
-        
+
         const discoverResponse = {
           id: messageId,
           result: {}
         };
-        
+
         console.log('🔍 Sending Target.setDiscoverTargets response');
         client.send(JSON.stringify(discoverResponse));
         return;
@@ -554,21 +566,21 @@ class BROPBridgeServer {
         const targetId = params.targetId;
         const flatten = params.flatten !== false; // default true
         console.log(`🔗 Target.attachToTarget request for ${targetId}, flatten: ${flatten}`);
-        
+
         // Generate a session ID for this attachment
         const sessionId = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
+
         // Store this session mapping
         const sessionInfo = this.clientSessions.get(client);
         if (sessionInfo) {
           sessionInfo.attachedTargetId = targetId;
           sessionInfo.attachedSessionId = sessionId;
         }
-        
+
         // Add to routing maps
         this.sessionToClient.set(sessionId, client);
         this.sessionToTarget.set(sessionId, targetId);
-        
+
         // Immediately send success response for attachment
         const attachResponse = {
           id: messageId,
@@ -576,10 +588,10 @@ class BROPBridgeServer {
             sessionId: sessionId
           }
         };
-        
+
         console.log(`🔗 Sending Target.attachToTarget response: sessionId=${sessionId}`);
         client.send(JSON.stringify(attachResponse));
-        
+
         // Send Target.attachedToTarget event
         setTimeout(() => {
           const attachedEvent = {
@@ -597,15 +609,15 @@ class BROPBridgeServer {
               waitingForDebugger: false
             }
           };
-          
+
           console.log(`🔗 Sending Target.attachedToTarget event for session: ${sessionId}`);
           client.send(JSON.stringify(attachedEvent));
         }, 10);
-        
+
         // Don't forward this to extension, we handle it locally
         return;
       }
-      
+
       // Set timeout for this request
       setTimeout(() => {
         if (this.pendingCdpRequests.has(messageId)) {
@@ -622,10 +634,10 @@ class BROPBridgeServer {
           }
         }
       }, 10000); // 10 second timeout
-      
+
       // Forward to extension
       this.extensionClient.send(JSON.stringify(extensionMessage));
-      
+
     } catch (error) {
       console.error('Error processing CDP message:', error);
     }
@@ -636,14 +648,14 @@ class BROPBridgeServer {
       const data = JSON.parse(message);
       const commandType = data.method || data.command?.type;
       const messageId = data.id || this.getNextMessageId();
-      
+
       // Get connection display for this client
       const connectionDisplay = this.getConnectionDisplay(client);
-      
+
       // Store command for later response logging (don't log request immediately)
       this.pendingCommandInfo = this.pendingCommandInfo || new Map();
       this.pendingCommandInfo.set(messageId, { command: commandType, connection: connectionDisplay });
-      
+
       // Handle bridge server status requests directly
       if (commandType === 'get_server_status') {
         const statusResponse = {
@@ -664,7 +676,77 @@ class BROPBridgeServer {
         this.logger.logSuccess('BROP', commandType, connectionDisplay);
         return;
       }
-      
+
+      // Handle tab event subscription
+      if (commandType === 'subscribe_tab_events') {
+        const tabId = data.params?.tabId;
+        if (!tabId) {
+          const errorResponse = {
+            id: messageId,
+            success: false,
+            error: 'tabId is required for tab event subscription'
+          };
+          client.send(JSON.stringify(errorResponse));
+          this.logger.logError('BROP', commandType, connectionDisplay, 'Missing tabId');
+          return;
+        }
+
+        // Add client to subscription list for this tab
+        if (!this.tabEventSubscriptions.has(tabId)) {
+          this.tabEventSubscriptions.set(tabId, new Set());
+        }
+        this.tabEventSubscriptions.get(tabId).add(client);
+
+        const successResponse = {
+          id: messageId,
+          success: true,
+          result: {
+            subscribed: true,
+            tabId: tabId,
+            events: data.params.events || ['tab_closed', 'tab_removed', 'tab_updated']
+          }
+        };
+        client.send(JSON.stringify(successResponse));
+        this.logger.logSuccess('BROP', commandType, connectionDisplay, `tab:${tabId}`);
+        return;
+      }
+
+      // Handle tab event unsubscription
+      if (commandType === 'unsubscribe_tab_events') {
+        const tabId = data.params?.tabId;
+        if (!tabId) {
+          const errorResponse = {
+            id: messageId,
+            success: false,
+            error: 'tabId is required for tab event unsubscription'
+          };
+          client.send(JSON.stringify(errorResponse));
+          this.logger.logError('BROP', commandType, connectionDisplay, 'Missing tabId');
+          return;
+        }
+
+        // Remove client from subscription list for this tab
+        if (this.tabEventSubscriptions.has(tabId)) {
+          this.tabEventSubscriptions.get(tabId).delete(client);
+          // Clean up empty subscription sets
+          if (this.tabEventSubscriptions.get(tabId).size === 0) {
+            this.tabEventSubscriptions.delete(tabId);
+          }
+        }
+
+        const successResponse = {
+          id: messageId,
+          success: true,
+          result: {
+            unsubscribed: true,
+            tabId: tabId
+          }
+        };
+        client.send(JSON.stringify(successResponse));
+        this.logger.logSuccess('BROP', commandType, connectionDisplay, `tab:${tabId}`);
+        return;
+      }
+
       if (!this.extensionClient || this.extensionClient.readyState !== WebSocket.OPEN) {
         // No extension connected
         const errorResponse = {
@@ -676,17 +758,17 @@ class BROPBridgeServer {
         this.logger.logError('BROP', commandType, connectionDisplay, 'Extension not connected');
         return;
       }
-      
+
       // Add ID if not present
       data.id = messageId;
       data.type = 'brop_command';
-      
+
       // Store client for response routing
       this.pendingBropRequests.set(messageId, client);
-      
+
       // Forward to extension
       this.extensionClient.send(JSON.stringify(data));
-      
+
     } catch (error) {
       console.error('Error processing BROP message:', error);
     }
@@ -696,16 +778,39 @@ class BROPBridgeServer {
 
   broadcastExtensionEvent(eventData) {
     const eventType = eventData.event_type;
-    
-    this.log(`🔧 DEBUG: Processing event: ${eventType}`);
-    
-    // Only broadcast to BROP clients (CDP support removed)
-    this.broadcastToBropClients(eventData);
+    const tabId = eventData.tabId;
+
+    this.log(`🔧 DEBUG: Processing event: ${eventType} for tab: ${tabId}`);
+
+    // If this is a tab-specific event, only broadcast to subscribed clients
+    if (tabId && this.tabEventSubscriptions.has(tabId)) {
+      const subscribers = this.tabEventSubscriptions.get(tabId);
+      const eventMessage = JSON.stringify(eventData);
+      
+      let sentCount = 0;
+      subscribers.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(eventMessage);
+          sentCount++;
+        }
+      });
+      
+      this.logger.logSuccess('BROP', `event:${eventType}`, `tab:${tabId}`, `→${sentCount} subscribers`);
+      
+      // Clean up subscriptions for closed tab events
+      if (eventType === 'tab_closed' || eventType === 'tab_removed') {
+        this.tabEventSubscriptions.delete(tabId);
+        this.log(`🧹 Cleaned up subscriptions for closed tab: ${tabId}`);
+      }
+    } else {
+      // Fallback: broadcast to all BROP clients (for non-tab-specific events)
+      this.broadcastToBropClients(eventData);
+    }
   }
 
 
 
-  
+
 
   broadcastToBropClients(message) {
     const messageStr = JSON.stringify(message);
@@ -716,19 +821,19 @@ class BROPBridgeServer {
     });
   }
 
-  
-  
-  
+
+
+
 
 
   async shutdown() {
     this.log('🛑 Shutting down BROP Bridge Server...');
     this.running = false;
-    
+
     if (this.bropServer) {
       this.bropServer.close();
     }
-    
+
     if (this.extensionServer) {
       this.extensionServer.close();
     }
@@ -744,20 +849,20 @@ async function main() {
   console.log('🔧 BROP Server: ws://localhost:9223 (for BROP clients)');
   console.log('🔌 Extension Server: ws://localhost:9224 (extension connects here)');
   console.log('');
-  
+
   const bridge = new BROPBridgeServer();
-  
+
   // Setup signal handlers
   process.on('SIGINT', () => {
     console.log('🛑 Received SIGINT');
     bridge.shutdown().then(() => process.exit(0));
   });
-  
+
   process.on('SIGTERM', () => {
     console.log('🛑 Received SIGTERM');
     bridge.shutdown().then(() => process.exit(0));
   });
-  
+
   try {
     await bridge.startServers();
   } catch (error) {

@@ -22,6 +22,7 @@ class BROPBridgeClient {
     this.messageHandlers = new Map();
     this.setupMessageHandlers();
     this.setupErrorHandlers();
+    this.setupTabEventListeners();
     this.loadSettings();
     this.connectToBridge();
   }
@@ -120,6 +121,63 @@ class BROPBridgeClient {
     console.error(`[BROP Error] ${type}: ${message}`, stack ? `\nStack: ${stack}` : '');
 
     this.saveSettings();
+  }
+
+  setupTabEventListeners() {
+    // Listen for tab removal events
+    chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+      this.sendTabEvent('tab_removed', {
+        tabId: tabId,
+        windowId: removeInfo.windowId,
+        isWindowClosing: removeInfo.isWindowClosing,
+        timestamp: Date.now()
+      });
+    });
+
+    // Listen for tab updates (URL changes, title changes, etc.)
+    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+      // Only send events for meaningful changes
+      if (changeInfo.status || changeInfo.url || changeInfo.title) {
+        this.sendTabEvent('tab_updated', {
+          tabId: tabId,
+          changeInfo: changeInfo,
+          url: tab.url,
+          title: tab.title,
+          status: tab.status,
+          timestamp: Date.now()
+        });
+      }
+    });
+
+    // Listen for tab activation (when user switches tabs)
+    chrome.tabs.onActivated.addListener((activeInfo) => {
+      this.sendTabEvent('tab_activated', {
+        tabId: activeInfo.tabId,
+        windowId: activeInfo.windowId,
+        timestamp: Date.now()
+      });
+    });
+
+    console.log('🔔 Tab event listeners set up');
+  }
+
+  sendTabEvent(eventType, eventData) {
+    if (!this.isConnected || !this.bridgeSocket) {
+      return; // No connection to bridge
+    }
+
+    const eventMessage = {
+      type: 'event',
+      event_type: eventType,
+      ...eventData
+    };
+
+    try {
+      this.bridgeSocket.send(JSON.stringify(eventMessage));
+      console.log(`🔔 Sent tab event: ${eventType} for tab ${eventData.tabId}`);
+    } catch (error) {
+      console.error('Error sending tab event:', error);
+    }
   }
 
   async loadSettings() {
