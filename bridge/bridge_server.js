@@ -23,7 +23,7 @@ class TableLogger {
     this.commandWidth = 20; // Command/Event name
     this.connWidth = 50;    // Connection info (increased from 35 to 45)
     this.errorWidth = 20;   // Error message (if any)
-    
+
     // Configurable output stream
     this.outputStream = options.outputStream || 'stdout';
     this.mcpMode = options.mcpMode || false;
