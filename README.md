@@ -1,16 +1,19 @@
 # BROP - Browser Remote Operations Protocol
 
-A Chrome extension that provides native browser automation capabilities through a WebSocket bridge server and Chrome extension interface.
+A Chrome extension that provides native browser automation capabilities through a WebSocket bridge server, Chrome extension interface, and **Model Context Protocol (MCP) server**.
 
 ## Features
 
-- **Bridge Server**: WebSocket server providing Chrome DevTools Protocol (CDP) compatibility
-- **Native Extension**: Chrome extension for direct browser control and automation
-- **JavaScript Execution**: Execute code in page context and capture console logs
-- **DOM Operations**: Simplified DOM extraction and element interaction
-- **Screenshot Capture**: Take screenshots of browser tabs
-- **Navigation Control**: Navigate pages with status monitoring
-- **Debug Toolkit**: Comprehensive debugging and monitoring tools
+- **🌉 Bridge Server**: WebSocket server providing Chrome DevTools Protocol (CDP) compatibility
+- **🔧 MCP Server**: Model Context Protocol interface for AI agents and tools (dual-mode: server/relay)
+- **🧩 Chrome Extension**: Native Chrome extension for direct browser control and automation
+- **📝 Content Extraction**: Advanced content extraction with Mozilla Readability and semantic markdown
+- **⚙️ JavaScript Execution**: Execute code in page context and capture console logs
+- **🎯 DOM Operations**: Simplified DOM extraction and element interaction
+- **📸 Screenshot Capture**: Take screenshots of browser tabs
+- **🧭 Navigation Control**: Navigate pages with status monitoring
+- **🔍 Debug Toolkit**: Comprehensive debugging and monitoring tools
+- **📦 Extension Packaging**: Production-ready Chrome extension packaging
 
 ## Installation
 
@@ -22,14 +25,32 @@ pnpm install
 
 2. **Load the extension in Chrome:**
 
-   - Open Chrome and go to `chrome://extensions/`
-   - Enable "Developer mode"
-   - Click "Load unpacked" and select this directory
+   - **Option A:** Load unpacked extension
+
+     - Open Chrome and go to `chrome://extensions/`
+     - Enable "Developer mode"
+     - Click "Load unpacked" and select this directory
+
+   - **Option B:** Install packaged extension
+     ```bash
+     pnpm run pack:extension:clean  # Creates brop-extension.zip
+     ```
+     - Drag and drop the zip file to `chrome://extensions/`
 
 3. **Start the bridge server:**
 
 ```bash
-pnpm run dev
+pnpm run dev          # Development mode with auto-reload
+# OR
+pnpm run bridge       # Production bridge server only
+```
+
+4. **Start MCP server (optional):**
+
+```bash
+pnpm run mcp          # Auto-detects server/relay mode
+# OR
+pnpm run mcp:inspect  # Start with MCP Inspector
 ```
 
 **Note:** No build process required! The extension works immediately after loading.
@@ -46,10 +67,28 @@ pnpm run dev
 
 The bridge server provides:
 
-- WebSocket endpoint on `ws://localhost:9223`
-- HTTP discovery endpoint on `http://localhost:9225`
-- Chrome DevTools Protocol compatibility
-- Real-time logging and debugging
+- **WebSocket endpoint**: `ws://localhost:9223` (BROP clients)
+- **Extension endpoint**: `ws://localhost:9224` (Chrome extension connects here)
+- **HTTP logs endpoint**: `http://localhost:9225/logs` (debugging)
+- **Chrome DevTools Protocol compatibility**
+- **Real-time logging and debugging**
+
+### MCP Server
+
+The MCP server provides AI agents with browser automation capabilities:
+
+```bash
+pnpm run mcp  # STDIO transport on auto-detected mode
+```
+
+**Dual-Mode Operation:**
+
+- **Server Mode**: When port 9223 is free, starts full BROP bridge servers
+- **Relay Mode**: When port 9223 is occupied, connects as client to existing server
+
+**Available Tools:** `brop_navigate`, `brop_get_page_content`, `brop_get_simplified_content`, `brop_execute_script`, `brop_click_element`, `brop_type_text`, `brop_create_page`, `brop_close_tab`, `brop_list_tabs`, `brop_activate_tab`, `brop_get_server_status`
+
+See **[MCP_README.md](MCP_README.md)** for complete MCP documentation.
 
 ### Chrome Extension
 
@@ -110,9 +149,16 @@ The bridge server supports Chrome DevTools Protocol (CDP) methods:
 
 #### Native BROP Commands
 
-- `get_simplified_dom`: Get simplified DOM structure
+- `get_simplified_dom`: Get simplified DOM structure (HTML/Markdown via Readability)
 - `get_console_logs`: Retrieve browser console logs
 - `get_page_content`: Extract page content and metadata
+- `navigate_to_url`: Navigate to a specific URL
+- `create_tab`: Create new browser tab
+- `close_tab`: Close specific tab
+- `list_tabs`: List all open tabs
+- `activate_tab`: Switch to specific tab
+- `click_element`: Click element by CSS selector
+- `type_text`: Type text into input fields
 
 ### Response Format
 
@@ -125,34 +171,38 @@ All responses follow CDP format:
 ## Architecture
 
 ```
-┌─────────────────┐    WebSocket     ┌──────────────────┐
-│   Client App    │ ◄─────────────► │  Bridge Server   │
-│  (JavaScript)   │      CDP        │  (Node.js)       │
-└─────────────────┘                 └──────────────────┘
-                                             │
-                                             │ Extension API
-                                             ▼
-                                    ┌──────────────────┐
-                                    │  Chrome Extension │
-                                    │  Background Script│
-                                    └──────────────────┘
-                                             │
-                                             │ Chrome APIs
-                                             ▼
-                                    ┌──────────────────┐
-                                    │   Web Pages      │
-                                    │  Content Scripts │
-                                    └──────────────────┘
+┌─────────────────┐    STDIO/WebSocket   ┌──────────────────┐    WebSocket    ┌──────────────────┐
+│   MCP Client    │ ◄─────────────────► │   MCP Server     │ ◄─────────────► │  Bridge Server   │
+│  (AI Agents)    │                     │  (port 3000)     │                 │  (port 9223)     │
+└─────────────────┘                     └──────────────────┘                 └──────────────────┘
+                                                                                        │
+┌─────────────────┐    WebSocket         ┌──────────────────┐                         │ WebSocket
+│   Client App    │ ◄─────────────────► │  Bridge Server   │                         │ (port 9224)
+│  (JavaScript)   │      CDP/BROP       │  (Node.js)       │                         ▼
+└─────────────────┘                     └──────────────────┘                ┌──────────────────┐
+                                                                             │  Chrome Extension │
+                                                                             │  Background Script│
+                                                                             └──────────────────┘
+                                                                                      │
+                                                                                      │ Chrome APIs
+                                                                                      ▼
+                                                                             ┌──────────────────┐
+                                                                             │   Web Pages      │
+                                                                             │  Content Scripts │
+                                                                             └──────────────────┘
 ```
 
 ### Components
 
-1. **Bridge Server** (`bridge/bridge_server.js`): Node.js WebSocket server providing CDP compatibility
-2. **Background Script** (`background_bridge_client.js`): Extension service worker handling automation commands
-3. **Content Script** (`content.js`): Injected into web pages for DOM interaction and monitoring
-4. **Injected Script** (`injected.js`): Runs in page context for enhanced JavaScript execution
-5. **Popup** (`popup.html/js`): Extension UI showing service status and debugging tools
-6. **DOM Simplifier** (`dom_simplifier.js`): Utility for extracting simplified DOM structures
+1. **MCP Server** (`bridge/mcp.js`): Model Context Protocol server with dual-mode operation (STDIO transport)
+2. **Bridge Server** (`bridge/bridge_server.js`): Node.js WebSocket server providing CDP/BROP compatibility
+3. **Background Script** (`background_bridge_client.js`): Extension service worker handling automation commands
+4. **Content Script** (`content.js`): Injected into web pages for DOM interaction and monitoring
+5. **Injected Script** (`injected.js`): Runs in page context for enhanced JavaScript execution
+6. **Popup** (`popup.html/js`): Extension UI showing service status and debugging tools
+7. **Content Extractor** (`content-extractor.js`): Advanced content extraction with Readability and semantic markdown
+8. **DOM Simplifier** (`dom_simplifier.js`): Utility for extracting simplified DOM structures
+9. **Client Library** (`client/`): JavaScript client library for BROP integration
 
 ## Development
 
@@ -166,18 +216,31 @@ pnpm run dev
 
 ### Testing
 
-Run the comprehensive test suite:
+**MCP Server Tests:**
+
+```bash
+pnpm run test:mcp        # Test MCP server modes
+```
+
+**BROP Protocol Tests:**
 
 ```bash
 cd tests
-./run_all_brop_tests.sh
+./run_all_brop_tests.sh  # Comprehensive test suite
 ```
 
-Or run individual tests:
+**Individual Tests:**
 
 ```bash
 node tests/working_brop_test.js
 node tests/test_bridge_connection.js
+```
+
+**Extension Packaging:**
+
+```bash
+pnpm run pack:extension        # Timestamped zip
+pnpm run pack:extension:clean  # Clean brop-extension.zip
 ```
 
 ## Debug Toolkit
@@ -307,16 +370,27 @@ The extension popup includes:
 ## Quick Start
 
 1. **Install dependencies:** `pnpm install`
-2. **Load the extension** in Chrome developer mode
+2. **Load the extension** in Chrome developer mode (or use `pnpm run pack:extension:clean`)
 3. **Start bridge server:** `pnpm run dev`
-4. **Open the popup** and verify connection
-5. **Run tests:** `cd tests && ./run_all_brop_tests.sh`
+4. **Start MCP server (optional):** `pnpm run mcp`
+5. **Open the popup** and verify connection
+6. **Run tests:** `pnpm run test:mcp` or `cd tests && ./run_all_brop_tests.sh`
 
 ## Roadmap
 
+- [x] **MCP Server Implementation** - Complete Model Context Protocol support
+- [x] **Advanced Content Extraction** - Mozilla Readability and semantic markdown
+- [x] **Extension Packaging** - Production-ready Chrome extension packaging
+- [x] **Dual-Mode MCP** - Server/relay mode detection and switching
 - [ ] Enhanced debugging and monitoring tools
 - [ ] Firefox extension support
 - [ ] Additional CDP method implementations
 - [ ] Performance optimizations
 - [ ] TypeScript conversion
 - [ ] npm package for JavaScript client library
+
+## Related Documentation
+
+- **[MCP_README.md](MCP_README.md)** - Complete MCP server documentation and usage examples
+- **[CLAUDE.md](CLAUDE.md)** - Development instructions and debugging toolkit
+- **[CLIENT_SETUP.md](CLIENT_SETUP.md)** - JavaScript client library setup and usage

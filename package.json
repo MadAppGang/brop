@@ -26,7 +26,9 @@
     "start-mcp": "node bridge/mcp.js",
     "test:mcp": "node test-mcp-stdio.js",
     "test:mcp:old": "node test-mcp-modes.js",
-    "mcp:inspect": "npx @modelcontextprotocol/inspector bridge/mcp.js"
+    "mcp:inspect": "npx @modelcontextprotocol/inspector bridge/mcp.js",
+    "pack:extension": "node pack-extension.js",
+    "pack:extension:clean": "node pack-extension.js --no-timestamp"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.270",

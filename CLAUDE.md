@@ -14,6 +14,12 @@ Use `pnpm` instead of `npm` for all package management operations:
 - `pnpm run dev:legacy` - Use legacy auto-reload script (bridge-auto-reload.js)
 - `pnpm run bridge` - Start bridge server directly without auto-reload
 
+## Extension Packaging
+
+- `pnpm run pack:extension` - Create timestamped Chrome extension zip package
+- `pnpm run pack:extension:clean` - Create clean 'brop-extension.zip' without timestamp
+- Packages only essential Chrome extension files for distribution
+
 ## Complete Debugging Toolkit
 
 ### 1. Extension Error Collection
