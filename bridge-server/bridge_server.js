@@ -14,6 +14,77 @@ const WebSocket = require('ws');
 const http = require('http');
 const url = require('url');
 
+class TableLogger {
+  constructor() {
+    // Fixed column widths
+    this.tsWidth = 19;      // Timestamp: [2025-06-13 04:09:41]
+    this.statusWidth = 3;   // Status: ✅ or ❌ or 🔗 or 🔌
+    this.typeWidth = 6;     // Type: BROP, EXT, SYS
+    this.commandWidth = 20; // Command/Event name
+    this.connWidth = 45;    // Connection info (increased from 35 to 45)
+    this.errorWidth = 40;   // Error message (if any)
+  }
+
+  getTimestamp() {
+    return new Date().toISOString().replace('T', ' ').slice(0, 19);
+  }
+
+  formatField(text, width, align = 'left') {
+    const str = String(text || '').slice(0, width);
+    
+    // Special handling for emoji status characters
+    if (str === '✅' || str === '❌' || str === '🔗' || str === '🔌') {
+      // Create a fixed-width field for emoji
+      return str.padEnd(1) + ' '.repeat(width - 1);
+    }
+    
+    return align === 'right' ? str.padStart(width) : str.padEnd(width);
+  }
+
+  formatRow(status, type, command, connection, error = '') {
+    const timestamp = this.getTimestamp();
+    
+    const parts = [
+      this.formatField(timestamp, this.tsWidth),
+      this.formatField(status, this.statusWidth),
+      this.formatField(type, this.typeWidth),
+      this.formatField(command, this.commandWidth),
+      this.formatField(connection, this.connWidth),
+      this.formatField(error, this.errorWidth) // Always include error column, even if empty
+    ];
+    
+    return parts.join(' │ ');
+  }
+
+  printHeader() {
+    const header = this.formatRow('STS', 'TYPE', 'COMMAND/EVENT', 'CONNECTION', 'ERROR/DETAILS');
+    console.log('─'.repeat(header.length));
+    console.log(header);
+    console.log('─'.repeat(header.length));
+  }
+
+  // Convenience methods for different log types
+  logConnect(type, connection) {
+    console.log(this.formatRow('🔗', type, 'connect', connection));
+  }
+
+  logDisconnect(type, connection) {
+    console.log(this.formatRow('🔌', type, 'disconnect', connection));
+  }
+
+  logSuccess(type, command, connection, details = '') {
+    console.log(this.formatRow('✅', type, command, connection, details));
+  }
+
+  logError(type, command, connection, error) {
+    console.log(this.formatRow('❌', type, command, connection, error));
+  }
+
+  logSystem(message) {
+    console.log(`[${this.getTimestamp()}] ${message}`);
+  }
+}
+
 class BROPBridgeServer {
   constructor() {
     this.startTime = Date.now();
@@ -37,121 +108,15 @@ class BROPBridgeServer {
     // Log storage for debugging endpoint
     this.logs = [];
     this.maxLogs = 1000; // Keep last 1000 log entries
-  }
-
-  getTimestamp() {
-    return new Date().toISOString().replace('T', ' ').slice(0, 19);
-  }
-
-  formatTableRow(timestamp, status, type, command, connection, error = '') {
-    // Fixed column widths
-    const tsWidth = 19;      // Timestamp: [2025-06-13 04:09:41]
-    const statusWidth = 3;   // Status: ✅ or ❌ or 🔗 or 🔌 (emojis need more space)
-    const typeWidth = 10;    // Type: BROP, EXT, SYS
-    const commandWidth = 20; // Command/Event name
-    const connWidth = 25;    // Connection info
-    const errorWidth = 40;   // Error message (if any)
     
-    // Truncate and pad fields, accounting for emoji width
-    const formatField = (text, width, align = 'left') => {
-      const str = String(text || '').slice(0, width);
-      // For status emojis, pad to ensure consistent spacing
-      if (text === status && (text.includes('✅') || text.includes('❌') || text.includes('🔗') || text.includes('🔌'))) {
-        return str.padEnd(width);
-      }
-      return align === 'right' ? str.padStart(width) : str.padEnd(width);
-    };
-    
-    const parts = [
-      formatField(timestamp, tsWidth),
-      formatField(status, statusWidth),
-      formatField(type, typeWidth),
-      formatField(command, commandWidth),
-      formatField(connection, connWidth),
-      error ? formatField(error, errorWidth) : ''
-    ];
-    
-    return parts.filter(p => p).join(' │ ').trim();
+    // Table logger
+    this.logger = new TableLogger();
   }
 
   log(message, ...args) {
-    const timestamp = this.getTimestamp();
-    
-    // Check if this is a structured log that should be formatted as table
-    if (message.includes('BROP:') || message.includes('connected') || message.includes('disconnected')) {
-      this.logAsTable(timestamp, message, ...args);
-    } else {
-      // Regular log format for system messages
-      const logMessage = `[${timestamp}] ${message}`;
-      const fullArgs = args.length > 0 ? [logMessage, ...args] : [logMessage];
-      console.log(...fullArgs);
-    }
-  }
-
-  logAsTable(timestamp, message, ...args) {
-    let status = '🔧';
-    let type = 'SYS';
-    let command = '';
-    let connection = '';
-    let error = '';
-    
-    // Parse different message types
-    if (message.includes('✅ BROP:')) {
-      status = '✅';
-      type = 'BROP';
-      const parts = message.split('✅ BROP: ')[1];
-      const bracketMatch = parts.match(/^(.*?)\s*\[(.*?)\](.*)$/);
-      if (bracketMatch) {
-        command = bracketMatch[1].trim();
-        connection = bracketMatch[2].trim();
-        error = bracketMatch[3].replace(/^\s*\(?(.*?)\)?$/, '$1').trim();
-      }
-    } else if (message.includes('❌ BROP:')) {
-      status = '❌';
-      type = 'BROP';
-      const parts = message.split('❌ BROP: ')[1];
-      const bracketMatch = parts.match(/^(.*?)\s*\[(.*?)\](.*)$/);
-      if (bracketMatch) {
-        command = bracketMatch[1].trim();
-        connection = bracketMatch[2].trim();
-        error = bracketMatch[3].replace(/^\s*\(?(.*?)\)?$/, '$1').trim();
-      }
-    } else if (message.includes('🔗') && message.includes('connected')) {
-      status = '🔗';
-      if (message.includes('BROP client')) {
-        type = 'BROP';
-        command = 'connect';
-        const bracketMatch = message.match(/\[(.*?)\]/);
-        if (bracketMatch) connection = bracketMatch[1];
-      } else if (message.includes('Chrome extension')) {
-        type = 'EXT';
-        command = 'connect';
-        connection = 'extension';
-      }
-    } else if (message.includes('🔌') && message.includes('disconnected')) {
-      status = '🔌';
-      if (message.includes('BROP client')) {
-        type = 'BROP';
-        command = 'disconnect';
-        const bracketMatch = message.match(/\[(.*?)\]/);
-        if (bracketMatch) connection = bracketMatch[1];
-      } else if (message.includes('Chrome extension')) {
-        type = 'EXT';
-        command = 'disconnect';
-        connection = 'extension';
-      }
-    } else {
-      // System messages
-      command = message.replace(/[🔧🔌📡🌉]/g, '').trim();
-      connection = 'system';
-    }
-    
-    const tableRow = this.formatTableRow(timestamp, status, type, command, connection, error);
-    console.log(tableRow);
-    
-    // Store in memory for debugging endpoint
+    // Store all logs for debugging endpoint
     const logEntry = {
-      timestamp: timestamp,
+      timestamp: this.logger.getTimestamp(),
       message: message,
       args: args,
       fullMessage: args.length > 0 ? `${message} ${args.join(' ')}` : message,
@@ -164,20 +129,9 @@ class BROPBridgeServer {
     if (this.logs.length > this.maxLogs) {
       this.logs.splice(0, this.logs.length - this.maxLogs);
     }
-  }
-
-  printTableHeader() {
-    const header = this.formatTableRow(
-      'TIMESTAMP', 
-      'STS', 
-      'TYPE', 
-      'COMMAND/EVENT', 
-      'CONNECTION', 
-      'ERROR/DETAILS'
-    );
-    console.log('─'.repeat(header.length));
-    console.log(header);
-    console.log('─'.repeat(header.length));
+    
+    // Use system logging for non-structured messages
+    this.logger.logSystem(message);
   }
 
   getNextMessageId() {
@@ -198,7 +152,7 @@ class BROPBridgeServer {
     
     try {
       // Print table header for structured logging
-      this.printTableHeader();
+      this.logger.printHeader();
       
       // Start BROP server (for BROP clients)
       this.bropServer = new WebSocket.Server({ 
@@ -282,7 +236,7 @@ class BROPBridgeServer {
   }
 
   handleExtensionClient(ws, req) {
-    this.log('🔗 Chrome extension connected');
+    this.logger.logConnect('EXT', 'extension');
     this.extensionClient = ws;
     
     // Send welcome message
@@ -297,7 +251,7 @@ class BROPBridgeServer {
     });
     
     ws.on('close', () => {
-      this.log('🔌 Chrome extension disconnected');
+      this.logger.logDisconnect('EXT', 'extension');
       this.extensionClient = null;
     });
     
@@ -378,7 +332,7 @@ class BROPBridgeServer {
     
     // Format connection display with name if provided
     const connectionDisplay = clientName ? `${connectionId}:${clientName}` : connectionId;
-    this.log(`🔗 BROP client connected [${connectionDisplay}]`);
+    this.logger.logConnect('BROP', connectionDisplay);
     this.bropClients.add(ws);
     
     ws.on('message', (message) => {
@@ -387,7 +341,7 @@ class BROPBridgeServer {
     
     ws.on('close', () => {
       const connectionDisplay = this.getConnectionDisplay(ws);
-      this.log(`🔌 BROP client disconnected [${connectionDisplay}]`);
+      this.logger.logDisconnect('BROP', connectionDisplay);
       this.bropClients.delete(ws);
       this.clientConnections.delete(ws);
     });
@@ -441,9 +395,11 @@ class BROPBridgeServer {
             const cmdInfo = this.pendingCommandInfo && this.pendingCommandInfo.get(requestId);
             if (cmdInfo) {
               this.pendingCommandInfo.delete(requestId);
-              const statusEmoji = data.success ? '✅' : '❌';
-              const errorInfo = data.success ? '' : ` (${data.error || 'Unknown error'})`;
-              this.log(`${statusEmoji} BROP: ${cmdInfo.command}${errorInfo} [${cmdInfo.connection}]`);
+              if (data.success) {
+                this.logger.logSuccess('BROP', cmdInfo.command, cmdInfo.connection);
+              } else {
+                this.logger.logError('BROP', cmdInfo.command, cmdInfo.connection, data.error || 'Unknown error');
+              }
             }
           }
         }
@@ -705,7 +661,7 @@ class BROPBridgeServer {
           }
         };
         client.send(JSON.stringify(statusResponse));
-        this.log(`✅ BROP: ${commandType} [${connectionDisplay}]`);
+        this.logger.logSuccess('BROP', commandType, connectionDisplay);
         return;
       }
       
@@ -717,7 +673,7 @@ class BROPBridgeServer {
           error: 'Chrome extension not connected'
         };
         client.send(JSON.stringify(errorResponse));
-        this.log(`❌ BROP: ${commandType} Extension not connected [${connectionDisplay}]`);
+        this.logger.logError('BROP', commandType, connectionDisplay, 'Extension not connected');
         return;
       }
       
