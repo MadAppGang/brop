@@ -15,7 +15,7 @@ const http = require('node:http');
 const url = require('node:url');
 
 class TableLogger {
-  constructor() {
+  constructor(options = {}) {
     // Fixed column widths
     this.tsWidth = 19;      // Timestamp: [2025-06-13 04:09:41]
     this.statusWidth = 3;   // Status: ✅ or ❌ or 🔗 or 🔌
@@ -23,6 +23,10 @@ class TableLogger {
     this.commandWidth = 20; // Command/Event name
     this.connWidth = 50;    // Connection info (increased from 35 to 45)
     this.errorWidth = 20;   // Error message (if any)
+    
+    // Configurable output stream
+    this.outputStream = options.outputStream || 'stdout';
+    this.mcpMode = options.mcpMode || false;
   }
 
   getTimestamp() {
@@ -56,37 +60,45 @@ class TableLogger {
     return parts.join(' │ ');
   }
 
+  log(message) {
+    if (this.outputStream === 'stderr' || this.mcpMode) {
+      console.error(message);
+    } else {
+      console.log(message);
+    }
+  }
+
   printHeader() {
     const header = this.formatRow('STS', 'TYPE', 'COMMAND/EVENT', 'CONNECTION', 'ERROR/DETAILS');
-    console.log('─'.repeat(header.length));
-    console.log(header);
-    console.log('─'.repeat(header.length));
+    this.log('─'.repeat(header.length));
+    this.log(header);
+    this.log('─'.repeat(header.length));
   }
 
   // Convenience methods for different log types
   logConnect(type, connection) {
-    console.log(this.formatRow('🔗', type, 'connect', connection));
+    this.log(this.formatRow('🔗', type, 'connect', connection));
   }
 
   logDisconnect(type, connection) {
-    console.log(this.formatRow('🔌', type, 'disconnect', connection));
+    this.log(this.formatRow('🔌', type, 'disconnect', connection));
   }
 
   logSuccess(type, command, connection, details = '') {
-    console.log(this.formatRow('✅', type, command, connection, details));
+    this.log(this.formatRow('✅', type, command, connection, details));
   }
 
   logError(type, command, connection, error) {
-    console.log(this.formatRow('❌', type, command, connection, error));
+    this.log(this.formatRow('❌', type, command, connection, error));
   }
 
   logSystem(message) {
-    console.log(`[${this.getTimestamp()}] ${message}`);
+    this.log(`[${this.getTimestamp()}] ${message}`);
   }
 }
 
 class BROPBridgeServer {
-  constructor() {
+  constructor(options = {}) {
     this.startTime = Date.now();
     this.extensionClient = null;
     this.bropClients = new Set();
@@ -112,8 +124,11 @@ class BROPBridgeServer {
     this.logs = [];
     this.maxLogs = 1000; // Keep last 1000 log entries
 
-    // Table logger
-    this.logger = new TableLogger();
+    // Table logger with configurable output
+    this.logger = new TableLogger({
+      outputStream: options.logToStderr ? 'stderr' : 'stdout',
+      mcpMode: options.mcpMode || false
+    });
   }
 
   log(message, ...args) {

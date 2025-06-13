@@ -32,21 +32,66 @@ pnpm install
 # Auto-detects mode based on port 9223 availability
 pnpm run mcp
 
-# Or directly
-node mcp-server.js
+# Or directly (STDIO transport)
+node bridge/mcp.js
+
+# For MCP Inspector
+pnpm run mcp:inspect
 ```
 
 ### 3. Connect MCP Client
 
-The MCP server runs on `ws://localhost:3000` and provides these tools:
+The MCP server uses **STDIO transport** and supports the following:
+
+**Protocol Methods:**
+- `ping` - Test connectivity and get server status
+
+**Available Tools:**
 
 - `brop_navigate` - Navigate to a URL
-- `brop_get_page_content` - Get page content (text/html/markdown)
+- `brop_get_page_content` - Get basic page content (raw HTML and text)
+- `brop_get_simplified_content` - Get cleaned content (HTML via Readability or Markdown)
 - `brop_execute_script` - Execute JavaScript
 - `brop_click_element` - Click elements by CSS selector
 - `brop_type_text` - Type text into input fields
+- `brop_create_page` - Create a new browser page/tab
+- `brop_close_tab` - Close a browser tab
+- `brop_list_tabs` - List all open browser tabs
+- `brop_activate_tab` - Switch to/activate a specific tab
+- `brop_get_server_status` - Get server status and connection info
 
 ## Usage Examples
+
+### Basic Connectivity Test (Ping)
+
+Test server connectivity and get status information:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "ping",
+  "params": {}
+}
+```
+
+Response:
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "status": "pong",
+    "timestamp": "2025-06-13T10:37:38.254Z",
+    "mode": "server",
+    "uptime": 15432,
+    "connections": {
+      "extensionConnected": true,
+      "bropConnected": false
+    }
+  }
+}
+```
 
 ### Basic MCP Client Connection
 
@@ -55,11 +100,21 @@ const WebSocket = require("ws");
 const client = new WebSocket("ws://localhost:3000");
 
 client.on("open", () => {
-  // List available tools
+  // Test connectivity first
   client.send(
     JSON.stringify({
       jsonrpc: "2.0",
       id: 1,
+      method: "ping",
+      params: {}
+    })
+  );
+  
+  // List available tools
+  client.send(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id: 2,
       method: "tools/list",
     })
   );
@@ -89,7 +144,7 @@ client.send(
 );
 ```
 
-### Get Page Content
+### Get Basic Page Content
 
 ```javascript
 client.send(
@@ -100,6 +155,45 @@ client.send(
     params: {
       name: "brop_get_page_content",
       arguments: {
+        tabId: 123,
+      },
+    },
+  })
+);
+```
+
+### Get Simplified Content (Readability HTML)
+
+```javascript
+client.send(
+  JSON.stringify({
+    jsonrpc: "2.0",
+    id: 4,
+    method: "tools/call",
+    params: {
+      name: "brop_get_simplified_content",
+      arguments: {
+        tabId: 123,
+        format: "html",
+        enableDetailedResponse: true,
+      },
+    },
+  })
+);
+```
+
+### Get Simplified Content (Semantic Markdown)
+
+```javascript
+client.send(
+  JSON.stringify({
+    jsonrpc: "2.0",
+    id: 5,
+    method: "tools/call",
+    params: {
+      name: "brop_get_simplified_content",
+      arguments: {
+        tabId: 123,
         format: "markdown",
       },
     },
@@ -113,7 +207,7 @@ client.send(
 client.send(
   JSON.stringify({
     jsonrpc: "2.0",
-    id: 4,
+    id: 6,
     method: "tools/call",
     params: {
       name: "brop_execute_script",
@@ -123,6 +217,67 @@ client.send(
     },
   })
 );
+```
+
+### Create New Page
+```javascript
+client.send(JSON.stringify({
+  jsonrpc: '2.0',
+  id: 7,
+  method: 'tools/call',
+  params: {
+    name: 'brop_create_page',
+    arguments: {
+      url: 'https://google.com',
+      active: true
+    }
+  }
+}));
+```
+
+### List All Tabs
+```javascript
+client.send(JSON.stringify({
+  jsonrpc: '2.0',
+  id: 8,
+  method: 'tools/call',
+  params: {
+    name: 'brop_list_tabs',
+    arguments: {
+      includeContent: false
+    }
+  }
+}));
+```
+
+### Activate/Switch to Tab
+```javascript
+client.send(JSON.stringify({
+  jsonrpc: '2.0',
+  id: 9,
+  method: 'tools/call',
+  params: {
+    name: 'brop_activate_tab',
+    arguments: {
+      tabId: 123
+    }
+  }
+}));
+```
+
+### Close Tab
+```javascript
+client.send(JSON.stringify({
+  jsonrpc: '2.0',
+  id: 10,
+  method: 'tools/call',
+  params: {
+    name: 'brop_close_tab',
+    arguments: {
+      tabId: 123
+    }
+  }
+}));
 ```
 
 ## Architecture

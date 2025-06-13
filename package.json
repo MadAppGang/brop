@@ -22,9 +22,10 @@
     "setup": "echo 'BROP Extension setup complete. Load the extension in Chrome developer mode.'",
     "bridge": "node bridge/bridge_server.js",
     "start-bridge": "node bridge/bridge_server.js",
-    "mcp": "node mcp-server.js",
-    "start-mcp": "node mcp-server.js",
-    "test:mcp": "node test-mcp-modes.js",
+    "mcp": "node bridge/mcp.js",
+    "start-mcp": "node bridge/mcp.js",
+    "test:mcp": "node test-mcp-stdio.js",
+    "test:mcp:old": "node test-mcp-modes.js",
     "mcp:inspect": "npx @modelcontextprotocol/inspector bridge/mcp.js"
   },
   "devDependencies": {

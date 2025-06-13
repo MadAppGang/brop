@@ -1,40 +1,50 @@
 #!/usr/bin/env node
 /**
- * MCP BROP Server
+ * MCP BROP Server - STDIO Transport
  * 
- * This server can operate in two modes:
- * 1. Server Mode: When port 9223 is free, starts BROP bridge servers on 9223/9224
- * 2. Relay Mode: When port 9223 is occupied, acts as BROP client and provides MCP interface
+ * Model Context Protocol server for Browser Remote Operations Protocol (BROP)
+ * Uses STDIO transport for compatibility with MCP Inspector and other tools
  */
 
 const net = require('node:net');
 const WebSocket = require('ws');
 const { BROPBridgeServer } = require('./bridge_server.js');
 
-class MCPBROPServer {
+class MCPBROPStdioServer {
   constructor() {
     this.isServerMode = false;
     this.bridgeServer = null;
     this.bropClient = null;
-    this.mcpServer = null;
-    this.logger = this.createLogger();
+    this.messageCounter = 0;
   }
 
-  createLogger() {
-    return {
-      log: (message, ...args) => {
-        const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
-        console.log(`[${timestamp}] ${message}`, ...args);
-      },
-      error: (message, ...args) => {
-        const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
-        console.error(`[${timestamp}] ERROR: ${message}`, ...args);
-      },
-      success: (message, ...args) => {
-        const timestamp = new Date().toISOString().replace('T', ' ').slice(0, 19);
-        console.log(`[${timestamp}] ✅ ${message}`, ...args);
+  log(message) {
+    // Log to stderr to avoid interfering with STDIO transport
+    console.error(`[MCP-BROP] ${new Date().toISOString()} ${message}`);
+  }
+
+  sendMessage(message) {
+    // Send to stdout for STDIO transport
+    console.log(JSON.stringify(message));
+  }
+
+  sendError(id, code, message) {
+    this.sendMessage({
+      jsonrpc: '2.0',
+      id: id,
+      error: {
+        code: code,
+        message: message
       }
-    };
+    });
+  }
+
+  sendResult(id, result) {
+    this.sendMessage({
+      jsonrpc: '2.0',
+      id: id,
+      result: result
+    });
   }
 
   /**
@@ -44,13 +54,13 @@ class MCPBROPServer {
   async checkPortAvailability(port = 9223) {
     return new Promise((resolve) => {
       const server = net.createServer();
-
+      
       server.listen(port, () => {
         server.close(() => {
           resolve(true); // Port is available
         });
       });
-
+      
       server.on('error', (err) => {
         if (err.code === 'EADDRINUSE') {
           resolve(false); // Port is occupied
@@ -65,44 +75,37 @@ class MCPBROPServer {
    * Start in Server Mode - run BROP bridge servers on 9223/9224
    */
   async startServerMode() {
-    this.logger.log('🔧 Starting MCP BROP Server in SERVER MODE');
-    this.logger.log('📡 Will start BROP bridge servers on ports 9223 and 9224');
-
+    this.log('Starting in SERVER MODE - will start BROP bridge servers');
+    
     try {
-      this.bridgeServer = new BROPBridgeServer();
+      this.bridgeServer = new BROPBridgeServer({
+        mcpMode: true,
+        logToStderr: true
+      });
       await this.bridgeServer.startServers();
-
-      this.logger.success('Server Mode: BROP bridge servers started successfully');
+      
       this.isServerMode = true;
-
-      // Start MCP server interface
-      await this.startMCPInterface();
-
+      this.log('Server Mode: BROP bridge servers started successfully');
+      
     } catch (error) {
-      this.logger.error('Failed to start server mode:', error);
+      this.log(`Failed to start server mode: ${error.message}`);
       throw error;
     }
   }
 
   /**
-   * Start in Relay Mode - connect to existing BROP server and provide MCP interface
+   * Start in Relay Mode - connect to existing BROP server
    */
   async startRelayMode() {
-    this.logger.log('🔗 Starting MCP BROP Server in RELAY MODE');
-    this.logger.log('📡 Will connect to existing BROP server on port 9223');
-
+    this.log('Starting in RELAY MODE - will connect to existing BROP server');
+    
     try {
-      // Connect to existing BROP server as a client
       await this.connectToBROPServer();
-
-      this.logger.success('Relay Mode: Connected to BROP server successfully');
       this.isServerMode = false;
-
-      // Start MCP server interface
-      await this.startMCPInterface();
-
+      this.log('Relay Mode: Connected to BROP server successfully');
+      
     } catch (error) {
-      this.logger.error('Failed to start relay mode:', error);
+      this.log(`Failed to start relay mode: ${error.message}`);
       throw error;
     }
   }
@@ -112,136 +115,111 @@ class MCPBROPServer {
    */
   async connectToBROPServer() {
     return new Promise((resolve, reject) => {
-      const ws = new WebSocket('ws://localhost:9223?name=mcp-relay');
-
+      const ws = new WebSocket('ws://localhost:9223?name=mcp-stdio');
+      
       ws.on('open', () => {
-        this.logger.success('Connected to BROP server as relay client');
+        this.log('Connected to BROP server as relay client');
         this.bropClient = ws;
         resolve();
       });
-
+      
       ws.on('error', (error) => {
-        this.logger.error('Failed to connect to BROP server:', error);
+        this.log(`Failed to connect to BROP server: ${error.message}`);
         reject(error);
       });
-
+      
       ws.on('close', () => {
-        this.logger.log('Connection to BROP server closed');
+        this.log('Connection to BROP server closed');
         this.bropClient = null;
       });
-
+      
       ws.on('message', (message) => {
-        this.handleBROPMessage(message.toString());
+        try {
+          const data = JSON.parse(message.toString());
+          this.log(`Received from BROP server: ${data.type || data.method || 'unknown'}`);
+        } catch (error) {
+          this.log(`Error parsing BROP message: ${error.message}`);
+        }
       });
     });
   }
 
-  /**
-   * Handle messages from BROP server (in relay mode)
-   */
-  handleBROPMessage(message) {
-    try {
-      const data = JSON.parse(message);
-      this.logger.log('📨 Received from BROP server:', data.type || data.method || 'unknown');
+  async initialize() {
+    this.log('Initializing MCP BROP Server...');
+    
+    // Check if port 9223 is available
+    const portAvailable = await this.checkPortAvailability(9223);
+    
+    if (portAvailable) {
+      this.log('Port 9223 is available - starting in SERVER MODE');
+      await this.startServerMode();
+    } else {
+      this.log('Port 9223 is occupied - starting in RELAY MODE');
+      await this.startRelayMode();
+    }
+    
+    this.log(`MCP BROP Server initialized in ${this.isServerMode ? 'SERVER' : 'RELAY'} mode`);
+  }
 
-      // Forward to MCP clients if needed
-      if (this.mcpClients) {
-        this.broadcastToMCPClients(data);
+  async handleMessage(message) {
+    const { method, params, id } = message;
+
+    try {
+      switch (method) {
+        case 'initialize':
+          await this.initialize();
+          this.sendResult(id, {
+            protocolVersion: '2024-11-05',
+            capabilities: {
+              tools: {
+                listChanged: true
+              }
+            },
+            serverInfo: {
+              name: 'mcp-brop-server',
+              version: '1.0.0',
+              mode: this.isServerMode ? 'server' : 'relay'
+            }
+          });
+          break;
+
+        case 'notifications/initialized':
+          // No response needed for notifications
+          break;
+
+        case 'ping':
+          this.sendResult(id, {
+            status: 'pong',
+            timestamp: new Date().toISOString(),
+            mode: this.isServerMode ? 'server' : 'relay',
+            uptime: this.bridgeServer ? Date.now() - this.bridgeServer.startTime : null,
+            connections: {
+              extensionConnected: this.bridgeServer?.extensionClient != null,
+              bropConnected: this.bropClient != null
+            }
+          });
+          break;
+
+        case 'tools/list':
+          this.sendResult(id, {
+            tools: this.getMCPTools()
+          });
+          break;
+
+        case 'tools/call':
+          const result = await this.handleToolCall(params);
+          this.sendResult(id, result);
+          break;
+
+        default:
+          this.sendError(id, -32601, `Method not found: ${method}`);
       }
     } catch (error) {
-      this.logger.error('Error handling BROP message:', error);
+      this.log(`Error handling method ${method}: ${error.message}`);
+      this.sendError(id, -32000, error.message);
     }
   }
 
-  /**
-   * Start MCP server interface
-   */
-  async startMCPInterface() {
-    const MCP_PORT = 3000; // Default MCP port
-
-    this.mcpServer = new WebSocket.Server({
-      port: MCP_PORT,
-      perMessageDeflate: false
-    });
-
-    this.mcpClients = new Set();
-
-    this.mcpServer.on('connection', (ws, req) => {
-      this.handleMCPClient(ws, req);
-    });
-
-    this.logger.success(`MCP interface started on ws://localhost:${MCP_PORT}`);
-    this.logger.log(`🌐 Mode: ${this.isServerMode ? 'SERVER' : 'RELAY'}`);
-  }
-
-  /**
-   * Handle MCP client connections
-   */
-  handleMCPClient(ws, req) {
-    this.logger.log('🔌 MCP client connected');
-    this.mcpClients.add(ws);
-
-    // Send welcome message with server info
-    ws.send(JSON.stringify({
-      jsonrpc: '2.0',
-      method: 'notifications/initialized',
-      params: {
-        protocolVersion: '2024-11-05',
-        capabilities: {
-          tools: {
-            listChanged: true
-          }
-        },
-        serverInfo: {
-          name: 'mcp-brop-server',
-          version: '1.0.0',
-          mode: this.isServerMode ? 'server' : 'relay'
-        }
-      }
-    }));
-
-    ws.on('message', (message) => {
-      this.handleMCPMessage(ws, message.toString());
-    });
-
-    ws.on('close', () => {
-      this.logger.log('🔌 MCP client disconnected');
-      this.mcpClients.delete(ws);
-    });
-
-    ws.on('error', (error) => {
-      this.logger.error('MCP client error:', error);
-    });
-  }
-
-  /**
-   * Handle MCP messages from clients
-   */
-  async handleMCPMessage(client, message) {
-    try {
-      const data = JSON.parse(message);
-      this.logger.log('📨 MCP Request:', data.method || 'unknown');
-
-      // Handle MCP protocol messages
-      if (data.method === 'tools/list') {
-        this.sendMCPResponse(client, data.id, {
-          tools: this.getMCPTools()
-        });
-      } else if (data.method === 'tools/call') {
-        await this.handleMCPToolCall(client, data);
-      } else {
-        // Unknown method
-        this.sendMCPError(client, data.id, -32601, 'Method not found');
-      }
-    } catch (error) {
-      this.logger.error('Error handling MCP message:', error);
-      this.sendMCPError(client, null, -32700, 'Parse error');
-    }
-  }
-
-  /**
-   * Get available MCP tools
-   */
   getMCPTools() {
     return [
       {
@@ -264,20 +242,39 @@ class MCPBROPServer {
       },
       {
         name: 'brop_get_page_content',
-        description: 'Get page content from the browser',
+        description: 'Get basic page content from the browser (raw HTML and text)',
         inputSchema: {
           type: 'object',
           properties: {
             tabId: {
               type: 'number',
-              description: 'Optional tab ID to get content from'
+              description: 'Tab ID to get content from'
+            }
+          },
+          required: ['tabId']
+        }
+      },
+      {
+        name: 'brop_get_simplified_content',
+        description: 'Get simplified and cleaned page content in HTML or Markdown format',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            tabId: {
+              type: 'number',
+              description: 'Tab ID to get content from'
             },
             format: {
               type: 'string',
-              enum: ['text', 'html', 'markdown'],
-              description: 'Content format'
+              enum: ['html', 'markdown'],
+              description: 'Output format - html (using Readability) or markdown (semantic conversion)'
+            },
+            enableDetailedResponse: {
+              type: 'boolean',
+              description: 'Include detailed extraction statistics and metadata'
             }
-          }
+          },
+          required: ['tabId', 'format']
         }
       },
       {
@@ -337,52 +334,137 @@ class MCPBROPServer {
           },
           required: ['selector', 'text']
         }
+      },
+      {
+        name: 'brop_create_page',
+        description: 'Create a new browser page/tab',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            url: {
+              type: 'string',
+              description: 'Optional URL to navigate to in the new page (defaults to about:blank)'
+            },
+            active: {
+              type: 'boolean',
+              description: 'Whether to make the new tab active (defaults to true)'
+            }
+          }
+        }
+      },
+      {
+        name: 'brop_close_tab',
+        description: 'Close a browser tab',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            tabId: {
+              type: 'number',
+              description: 'ID of the tab to close'
+            }
+          },
+          required: ['tabId']
+        }
+      },
+      {
+        name: 'brop_list_tabs',
+        description: 'List all open browser tabs',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            windowId: {
+              type: 'number',
+              description: 'Optional window ID to filter tabs (if not provided, lists tabs from all windows)'
+            },
+            includeContent: {
+              type: 'boolean',
+              description: 'Whether to include page content in the response (defaults to false)'
+            }
+          }
+        }
+      },
+      {
+        name: 'brop_activate_tab',
+        description: 'Switch to/activate a specific browser tab',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            tabId: {
+              type: 'number',
+              description: 'ID of the tab to activate'
+            }
+          },
+          required: ['tabId']
+        }
+      },
+      {
+        name: 'brop_get_server_status',
+        description: 'Get BROP server status and connection info',
+        inputSchema: {
+          type: 'object',
+          properties: {}
+        }
       }
     ];
   }
 
-  /**
-   * Handle MCP tool calls
-   */
-  async handleMCPToolCall(client, data) {
-    const { name, arguments: args } = data.params;
+  async handleToolCall(params) {
+    const { name, arguments: args } = params;
 
     try {
-      let result;
+      switch (name) {
+        case 'brop_get_server_status':
+          return {
+            mode: this.isServerMode ? 'server' : 'relay',
+            status: 'running',
+            bropPort: 9223,
+            extensionPort: 9224,
+            hasExtensionConnection: this.bridgeServer?.extensionClient != null,
+            hasBropConnection: this.bropClient != null
+          };
 
-      if (this.isServerMode && this.bridgeServer) {
-        // Server mode - use bridge server directly
-        result = await this.executeBROPCommand(name, args);
-      } else if (this.bropClient) {
-        // Relay mode - send through BROP client
-        result = await this.relayBROPCommand(name, args);
-      } else {
-        throw new Error('No BROP connection available');
+        case 'brop_navigate':
+        case 'brop_get_page_content':
+        case 'brop_get_simplified_content':
+        case 'brop_execute_script':
+        case 'brop_click_element':
+        case 'brop_type_text':
+        case 'brop_create_page':
+        case 'brop_close_tab':
+        case 'brop_list_tabs':
+        case 'brop_activate_tab':
+          return await this.executeBROPCommand(name, args);
+
+        default:
+          throw new Error(`Unknown tool: ${name}`);
       }
-
-      this.sendMCPResponse(client, data.id, result);
     } catch (error) {
-      this.logger.error('Tool call failed:', error);
-      this.sendMCPError(client, data.id, -32000, error.message);
+      throw new Error(`Tool execution failed: ${error.message}`);
     }
   }
 
-  /**
-   * Execute BROP command in server mode
-   */
   async executeBROPCommand(toolName, args) {
-    // Convert MCP tool call to BROP command format
     const bropCommand = this.convertMCPToolToBROPCommand(toolName, args);
+    
+    if (this.isServerMode && this.bridgeServer?.extensionClient) {
+      // Server mode - use bridge server directly
+      return await this.executeCommandInServerMode(bropCommand);
+    } else if (this.bropClient && this.bropClient.readyState === WebSocket.OPEN) {
+      // Relay mode - send through BROP client
+      return await this.executeCommandInRelayMode(bropCommand);
+    } else {
+      throw new Error('No BROP connection available');
+    }
+  }
 
-    // Execute command through bridge server extension client
-    if (!this.bridgeServer.extensionClient) {
+  async executeCommandInServerMode(bropCommand) {
+    if (!this.bridgeServer?.extensionClient) {
       throw new Error('Chrome extension not connected');
     }
 
     return new Promise((resolve, reject) => {
       const messageId = `mcp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-      // Set up response handler
+      
       const timeout = setTimeout(() => {
         reject(new Error('Command timeout'));
       }, 10000);
@@ -393,7 +475,7 @@ class MCPBROPServer {
           if (data.id === messageId) {
             clearTimeout(timeout);
             this.bridgeServer.extensionClient.off('message', responseHandler);
-
+            
             if (data.success) {
               resolve(data.result);
             } else {
@@ -407,7 +489,6 @@ class MCPBROPServer {
 
       this.bridgeServer.extensionClient.on('message', responseHandler);
 
-      // Send command
       const command = {
         ...bropCommand,
         id: messageId,
@@ -418,19 +499,10 @@ class MCPBROPServer {
     });
   }
 
-  /**
-   * Relay BROP command in relay mode
-   */
-  async relayBROPCommand(toolName, args) {
-    if (!this.bropClient || this.bropClient.readyState !== WebSocket.OPEN) {
-      throw new Error('Not connected to BROP server');
-    }
-
-    const bropCommand = this.convertMCPToolToBROPCommand(toolName, args);
-
+  async executeCommandInRelayMode(bropCommand) {
     return new Promise((resolve, reject) => {
       const messageId = `mcp_relay_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
+      
       const timeout = setTimeout(() => {
         reject(new Error('Command timeout'));
       }, 10000);
@@ -441,7 +513,7 @@ class MCPBROPServer {
           if (data.id === messageId) {
             clearTimeout(timeout);
             this.bropClient.off('message', responseHandler);
-
+            
             if (data.success) {
               resolve(data.result);
             } else {
@@ -455,7 +527,6 @@ class MCPBROPServer {
 
       this.bropClient.on('message', responseHandler);
 
-      // Send command
       const command = {
         ...bropCommand,
         id: messageId
@@ -465,9 +536,6 @@ class MCPBROPServer {
     });
   }
 
-  /**
-   * Convert MCP tool call to BROP command format
-   */
   convertMCPToolToBROPCommand(toolName, args) {
     switch (toolName) {
       case 'brop_navigate':
@@ -478,16 +546,25 @@ class MCPBROPServer {
             tab_id: args.tabId
           }
         };
-
+      
       case 'brop_get_page_content':
         return {
           method: 'get_page_content',
           params: {
-            tab_id: args.tabId,
-            format: args.format || 'markdown'
+            tabId: args.tabId
           }
         };
-
+      
+      case 'brop_get_simplified_content':
+        return {
+          method: 'get_simplified_dom',
+          params: {
+            tabId: args.tabId,
+            format: args.format,
+            enableDetailedResponse: args.enableDetailedResponse || false
+          }
+        };
+      
       case 'brop_execute_script':
         return {
           method: 'execute_script',
@@ -496,7 +573,7 @@ class MCPBROPServer {
             tab_id: args.tabId
           }
         };
-
+      
       case 'brop_click_element':
         return {
           method: 'click_element',
@@ -505,7 +582,7 @@ class MCPBROPServer {
             tab_id: args.tabId
           }
         };
-
+      
       case 'brop_type_text':
         return {
           method: 'type_text',
@@ -515,121 +592,118 @@ class MCPBROPServer {
             tab_id: args.tabId
           }
         };
-
+      
+      case 'brop_create_page':
+        return {
+          method: 'create_tab',
+          params: {
+            url: args.url || 'about:blank',
+            active: args.active !== false  // Default to true unless explicitly false
+          }
+        };
+      
+      case 'brop_close_tab':
+        return {
+          method: 'close_tab',
+          params: {
+            tabId: args.tabId
+          }
+        };
+      
+      case 'brop_list_tabs':
+        return {
+          method: 'list_tabs',
+          params: {
+            include_content: args.includeContent || false
+          }
+        };
+      
+      case 'brop_activate_tab':
+        return {
+          method: 'activate_tab',
+          params: {
+            tabId: args.tabId
+          }
+        };
+      
       default:
         throw new Error(`Unknown tool: ${toolName}`);
     }
   }
 
-  /**
-   * Send MCP response
-   */
-  sendMCPResponse(client, id, result) {
-    const response = {
-      jsonrpc: '2.0',
-      id: id,
-      result: result
-    };
-    client.send(JSON.stringify(response));
-  }
+  async start() {
+    this.log('Starting MCP BROP STDIO Server...');
 
-  /**
-   * Send MCP error
-   */
-  sendMCPError(client, id, code, message) {
-    const error = {
-      jsonrpc: '2.0',
-      id: id,
-      error: {
-        code: code,
-        message: message
-      }
-    };
-    client.send(JSON.stringify(error));
-  }
-
-  /**
-   * Broadcast message to all MCP clients
-   */
-  broadcastToMCPClients(message) {
-    if (!this.mcpClients) return;
-
-    const messageStr = JSON.stringify(message);
-    this.mcpClients.forEach(client => {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(messageStr);
+    // Set up STDIO message handling
+    process.stdin.setEncoding('utf8');
+    
+    let buffer = '';
+    process.stdin.on('readable', () => {
+      let chunk;
+      while (null !== (chunk = process.stdin.read())) {
+        buffer += chunk;
+        
+        // Process complete JSON messages
+        let newlineIndex;
+        while ((newlineIndex = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, newlineIndex).trim();
+          buffer = buffer.slice(newlineIndex + 1);
+          
+          if (line) {
+            try {
+              const message = JSON.parse(line);
+              this.handleMessage(message);
+            } catch (error) {
+              this.log(`Failed to parse message: ${error.message}`);
+              this.sendError(null, -32700, 'Parse error');
+            }
+          }
+        }
       }
     });
+
+    process.stdin.on('end', () => {
+      this.log('STDIN closed, shutting down...');
+      this.shutdown();
+    });
+
+    // Handle process signals
+    process.on('SIGINT', () => {
+      this.log('Received SIGINT, shutting down...');
+      this.shutdown();
+    });
+
+    process.on('SIGTERM', () => {
+      this.log('Received SIGTERM, shutting down...');
+      this.shutdown();
+    });
+
+    this.log('MCP BROP STDIO Server ready and listening for messages');
   }
 
-  /**
-   * Start the MCP BROP server
-   */
-  async start() {
-    this.logger.log('🚀 Starting MCP BROP Server...');
-
-    // Check if port 9223 is available
-    const portAvailable = await this.checkPortAvailability(9223);
-
-    if (portAvailable) {
-      this.logger.log('✅ Port 9223 is available - starting in SERVER MODE');
-      await this.startServerMode();
-    } else {
-      this.logger.log('🔗 Port 9223 is occupied - starting in RELAY MODE');
-      await this.startRelayMode();
-    }
-
-    this.logger.success('MCP BROP Server started successfully!');
-    this.logger.log(`📊 Mode: ${this.isServerMode ? 'SERVER' : 'RELAY'}`);
-    this.logger.log('📡 MCP interface available on ws://localhost:3000');
-  }
-
-  /**
-   * Shutdown the server
-   */
   async shutdown() {
-    this.logger.log('🛑 Shutting down MCP BROP Server...');
-
-    if (this.mcpServer) {
-      this.mcpServer.close();
-    }
-
+    this.log('Shutting down MCP BROP Server...');
+    
     if (this.bridgeServer) {
       await this.bridgeServer.shutdown();
     }
-
+    
     if (this.bropClient) {
       this.bropClient.close();
     }
-
-    this.logger.success('Shutdown complete');
+    
+    process.exit(0);
   }
 }
 
-// Main function
+// Main execution
 async function main() {
-  console.log('🌉 MCP BROP Server');
-  console.log('=' + '='.repeat(50));
-  console.log('Model Context Protocol interface for BROP');
-  console.log('');
-
-  const server = new MCPBROPServer();
-
-  // Setup signal handlers
-  process.on('SIGINT', () => {
-    console.log('🛑 Received SIGINT');
-    server.shutdown().then(() => process.exit(0));
-  });
-
-  process.on('SIGTERM', () => {
-    console.log('🛑 Received SIGTERM');
-    server.shutdown().then(() => process.exit(0));
-  });
-
+  const server = new MCPBROPStdioServer();
+  
   try {
     await server.start();
   } catch (error) {
-    console.error('💥 Server error:', error);
+    console.error('Failed to start MCP BROP STDIO Server:', error);
     process.exit(1);
   }
 }
@@ -646,4 +720,4 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { MCPBROPServer };
+module.exports = { MCPBROPStdioServer };

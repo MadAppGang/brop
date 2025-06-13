@@ -4,7 +4,7 @@
  * Tests both server mode and relay mode functionality
  */
 
-const { MCPBROPServer } = require('./mcp-server.js');
+const { MCPBROPStdioServer } = require('./bridge/mcp.js');
 const { BROPBridgeServer } = require('./bridge/bridge_server.js');
 const WebSocket = require('ws');
 
@@ -15,7 +15,7 @@ async function delay(ms) {
 async function testServerMode() {
   console.log('\n🧪 Testing SERVER MODE...');
   
-  const mcpServer = new MCPBROPServer();
+  const mcpServer = new MCPBROPStdioServer();
   
   try {
     // Start in server mode (port 9223 should be free)
@@ -50,7 +50,7 @@ async function testRelayMode() {
     await delay(1000);
     
     // Now start MCP server (should detect port 9223 is occupied and go into relay mode)
-    const mcpServer = new MCPBROPServer();
+    const mcpServer = new MCPBROPStdioServer();
     await mcpServer.start();
     
     console.log('✅ Relay mode started successfully');
