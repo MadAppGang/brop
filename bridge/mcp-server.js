@@ -162,17 +162,44 @@ class BROPMCPServer {
 
     const bropCommand = this.convertMCPToolToBROPCommand(toolName, args);
 
-    if (this.isServerMode && this.bridgeServer?.extensionClient) {
-      // Server mode - use bridge server directly
-      return await this.executeCommandInServerMode(bropCommand);
-    }
+    // Try execution with retry logic for extension connection
+    return await this.executeWithRetry(bropCommand);
+  }
 
-    if (this.bropClient && this.bropClient.readyState === WebSocket.OPEN) {
-      // Relay mode - send through BROP client
-      return await this.executeCommandInRelayMode(bropCommand);
-    }
+  async executeWithRetry(bropCommand, maxRetries = 1, retryDelay = 5000) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (this.isServerMode && this.bridgeServer?.extensionClient) {
+          // Server mode - use bridge server directly
+          return await this.executeCommandInServerMode(bropCommand);
+        }
 
-    throw new Error('No BROP connection available');
+        if (this.bropClient && this.bropClient.readyState === WebSocket.OPEN) {
+          // Relay mode - send through BROP client
+          return await this.executeCommandInRelayMode(bropCommand);
+        }
+
+        // No connection available
+        if (attempt < maxRetries) {
+          this.log(`No browser extension connected, waiting ${retryDelay/1000}s before retry (attempt ${attempt + 1}/${maxRetries + 1})`);
+          await this.sleep(retryDelay);
+          continue;
+        }
+
+        throw new Error('No BROP connection available - Chrome extension not connected');
+      } catch (error) {
+        if (error.message.includes('Chrome extension not connected') && attempt < maxRetries) {
+          this.log(`Extension connection error, waiting ${retryDelay/1000}s before retry (attempt ${attempt + 1}/${maxRetries + 1}): ${error.message}`);
+          await this.sleep(retryDelay);
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+
+  sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   async executeCommandInServerMode(bropCommand) {
@@ -690,8 +717,10 @@ server.tool(
       const status = {
         mode: bropServer.isServerMode ? 'server' : 'relay',
         isInitialized: bropServer.isInitialized,
-        hasExtensionConnection: bropServer.bridgeServer?.extensionClient != null,
-        hasBropConnection: bropServer.bropClient != null,
+        hasExtensionConnection: bropServer.bridgeServer?.extensionClient && 
+                               bropServer.bridgeServer.extensionClient.readyState === WebSocket.OPEN,
+        hasBropConnection: bropServer.bropClient && 
+                          bropServer.bropClient.readyState === WebSocket.OPEN,
         status: 'running'
       };
 
