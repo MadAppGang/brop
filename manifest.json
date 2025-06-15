@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "Browser Remote Operations Protocol",
-  "version": "1.0.5",
+  "version": "1.0.8",
   "description": "Chrome extension providing WebSocket interface with Protocol Buffers for browser automation",
   "permissions": [
     "tabs",
     "storage",
     "scripting",
     "nativeMessaging",
-    "alarms"
+    "alarms",
+    "debugger"
   ],
   "icons": {
     "16": "icons/icon16.png",
