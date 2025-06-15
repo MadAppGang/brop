@@ -3,7 +3,7 @@
  * BROP Bridge Server (Node.js)
  * 
  * A middleware server that bridges between:
- * 1. BROP clients on port 9223  
+ * 1. BROP clients on port 9225  
  * 2. Chrome extension WebSocket client on port 9224
  * 3. CDP clients on port 9222 (Playwright/Puppeteer compatibility)
  * 
@@ -281,13 +281,13 @@ class BROPBridgeServer {
 
       // Start BROP server (for BROP clients)
       this.bropServer = new WebSocketServer({
-        port: 9223,
+        port: 9225,
         perMessageDeflate: false
       });
       this.bropServer.on('connection', (ws, req) => {
         this.handleBropClient(ws, req);
       });
-      this.log('🔧 BROP Server started on ws://localhost:9223');
+      this.log('🔧 BROP Server started on ws://localhost:9225');
 
       // Start Extension WebSocket server (extension connects as client)
       this.extensionServer = new WebSocketServer({
