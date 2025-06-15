@@ -6,9 +6,9 @@
  * Based on manifest.json dependencies and Chrome extension requirements.
  */
 
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
+import fs from 'fs';
+import path from 'path';
+import { execSync } from 'child_process';
 
 // Files required for Chrome extension (based on manifest.json)
 const EXTENSION_FILES = [
@@ -229,7 +229,7 @@ function showHelp() {
 }
 
 // Main execution
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   const args = process.argv.slice(2);
   
   if (args.includes('--help') || args.includes('-h')) {
@@ -248,4 +248,4 @@ if (require.main === module) {
   createExtensionZip(useTimestamp);
 }
 
-module.exports = { createExtensionZip };
+export { createExtensionZip };

@@ -1,35 +1,27 @@
-import { chromium } from 'playwright';
 import WebSocket from 'ws';
 
 async function testCDPRelay() {
   console.log('🧪 Simple CDP Relay Test');
   console.log('========================\n');
 
-  let browser, page, ws;
+  let ws;
 
   try {
-    // 1. Launch browser
-    console.log('1. Launching browser...');
-    browser = await chromium.launch({
-      headless: false,
-      args: ['--remote-debugging-port=9223']
-    });
-    page = await browser.newPage();
-
-    // 2. Connect to our CDP proxy
-    console.log('2. Connecting to CDP proxy (port 9222)...');
-    ws = new WebSocket('ws://localhost:9222');
+    // 1. Connect to our unified bridge CDP endpoint
+    console.log('1. Connecting to unified bridge CDP endpoint (port 9222)...');
+    ws = new WebSocket('ws://localhost:9222/devtools/browser/brop-bridge-test');
 
     await new Promise((resolve, reject) => {
       ws.on('open', () => {
-        console.log('✅ Connected to CDP proxy');
+        console.log('✅ Connected to unified bridge CDP endpoint');
         resolve();
       });
       ws.on('error', reject);
+      setTimeout(() => reject(new Error('Connection timeout')), 5000);
     });
 
-    // 3. Test basic commands
-    console.log('\n3. Testing CDP commands through proxy...\n');
+    // 2. Test basic commands through unified bridge
+    console.log('\n2. Testing CDP commands through unified bridge...\n');
 
     const tests = [
       {
@@ -57,13 +49,15 @@ async function testCDPRelay() {
 
   } catch (error) {
     console.error('❌ Test failed:', error.message);
+    return false;
   } finally {
     // Cleanup
-    console.log('\n4. Cleaning up...');
+    console.log('\n3. Cleaning up...');
     if (ws) ws.close();
-    if (browser) await browser.close();
     console.log('✅ Cleanup complete');
   }
+  
+  return true;
 }
 
 function runTest(ws, testName, command) {
@@ -100,9 +94,14 @@ function runTest(ws, testName, command) {
 }
 
 // Run the test
-testCDPRelay().then(() => {
-  console.log('\n🎉 Test completed!');
-  process.exit(0);
+testCDPRelay().then((success) => {
+  if (success) {
+    console.log('\n🎉 Test completed successfully!');
+    process.exit(0);
+  } else {
+    console.log('\n💥 Test failed!');
+    process.exit(1);
+  }
 }).catch(error => {
   console.error('\n💥 Test failed:', error);
   process.exit(1);

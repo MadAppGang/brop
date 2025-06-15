@@ -123,6 +123,7 @@ class UnifiedBridgeServer {
 		// Message routing
 		this.pendingBropRequests = new Map(); // messageId -> bropClient
 		this.pendingCdpRequests = new Map(); // messageId -> requestInfo
+		this.pendingCommandInfo = new Map(); // messageId -> { command, connection } for response logging
 		this.messageCounter = 0;
 		this.connectionCounter = 0;
 
@@ -156,18 +157,24 @@ class UnifiedBridgeServer {
 		});
 	}
 
-	log(message) {
+	log(message, ...args) {
+		// Store all logs for debugging endpoint
 		const logEntry = {
 			timestamp: this.logger.getTimestamp(),
 			message: message,
+			args: args,
+			fullMessage: args.length > 0 ? `${message} ${args.join(" ")}` : message,
 			level: "info",
 		};
 
 		this.logs.push(logEntry);
+
+		// Keep only the last maxLogs entries
 		if (this.logs.length > this.maxLogs) {
 			this.logs.splice(0, this.logs.length - this.maxLogs);
 		}
 
+		// Use system logging for non-structured messages
 		this.logger.logSystem(message);
 	}
 
@@ -179,6 +186,16 @@ class UnifiedBridgeServer {
 	getNextConnectionId() {
 		this.connectionCounter++;
 		return `conn_${this.connectionCounter}`;
+	}
+
+	// Helper to format connection display with name
+	getConnectionDisplay(client) {
+		const clientInfo = this.bropConnections.get(client);
+		if (!clientInfo) return "unknown";
+
+		return clientInfo.name
+			? `${clientInfo.id}:${clientInfo.name}`
+			: clientInfo.id;
 	}
 
 	async startServers() {
@@ -495,9 +512,14 @@ class UnifiedBridgeServer {
 			// Store client for response routing
 			this.pendingBropRequests.set(messageId, client);
 
+			// Store command info for response logging
+			this.pendingCommandInfo.set(messageId, {
+				command: commandType,
+				connection: connectionDisplay,
+			});
+
 			// Forward to extension
 			this.extensionClient.send(JSON.stringify(data));
-			this.logger.logSuccess("BROP", commandType, connectionDisplay);
 		} catch (error) {
 			this.logger.logError("BROP", "parse", "unknown", error.message);
 		}
@@ -588,6 +610,26 @@ class UnifiedBridgeServer {
 
 					if (client.readyState === WebSocket.OPEN) {
 						client.send(JSON.stringify(data));
+
+						// Log BROP command result with connection display using stored command info
+						const cmdInfo = this.pendingCommandInfo?.get(requestId);
+						if (cmdInfo) {
+							this.pendingCommandInfo.delete(requestId);
+							if (data.success) {
+								this.logger.logSuccess(
+									"BROP",
+									cmdInfo.command,
+									cmdInfo.connection,
+								);
+							} else {
+								this.logger.logError(
+									"BROP",
+									cmdInfo.command,
+									cmdInfo.connection,
+									data.error || "Unknown error",
+								);
+							}
+						}
 					}
 					return;
 				}

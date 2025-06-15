@@ -1,6 +1,6 @@
-const { chromium } = require('playwright');
-const WebSocket = require('ws');
-const readline = require('readline');
+import { chromium } from 'playwright';
+import WebSocket from 'ws';
+import readline from 'readline';
 
 class InteractiveCDPTester {
   constructor() {
@@ -219,7 +219,7 @@ const scenarios = {
 };
 
 // Run the interactive tester
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
   const tester = new InteractiveCDPTester();
   
   // Check for scenario argument
@@ -249,4 +249,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = InteractiveCDPTester;
+export default InteractiveCDPTester;

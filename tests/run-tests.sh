@@ -33,11 +33,13 @@ check_system() {
 # Run simple test
 run_simple_test() {
     echo -e "\n${BLUE}Running Simple CDP Test...${NC}"
-    if node simple-cdp-test.js; then
+    if cd .. && node tests/simple-cdp-test.js; then
         echo -e "${GREEN}✅ Simple test passed${NC}"
+        cd tests
         return 0
     else
         echo -e "${RED}❌ Simple test failed${NC}"
+        cd tests
         return 1
     fi
 }
@@ -45,11 +47,13 @@ run_simple_test() {
 # Run comprehensive test
 run_comprehensive_test() {
     echo -e "\n${BLUE}Running Comprehensive CDP Relay Test...${NC}"
-    if node playwright-cdp-relay-test.js; then
+    if cd .. && node tests/playwright-cdp-relay-test.js; then
         echo -e "${GREEN}✅ Comprehensive test passed${NC}"
+        cd tests
         return 0
     else
         echo -e "${RED}❌ Comprehensive test failed${NC}"
+        cd tests
         return 1
     fi
 }
@@ -59,18 +63,22 @@ run_scenarios() {
     echo -e "\n${BLUE}Running Test Scenarios...${NC}"
     
     echo -e "\n${YELLOW}Basic Scenario:${NC}"
-    if node interactive-test.js basic; then
+    if cd .. && node tests/interactive-test.js basic; then
         echo -e "${GREEN}✅ Basic scenario passed${NC}"
+        cd tests
     else
         echo -e "${RED}❌ Basic scenario failed${NC}"
+        cd tests
         return 1
     fi
     
     echo -e "\n${YELLOW}Advanced Scenario:${NC}"
-    if node interactive-test.js advanced; then
+    if cd .. && node tests/interactive-test.js advanced; then
         echo -e "${GREEN}✅ Advanced scenario passed${NC}"
+        cd tests
     else
         echo -e "${RED}❌ Advanced scenario failed${NC}"
+        cd tests
         return 1
     fi
     
@@ -98,7 +106,8 @@ main() {
         "interactive")
             check_system
             echo -e "\n${BLUE}Starting Interactive CDP Tester...${NC}"
-            node interactive-test.js
+            cd .. && node tests/interactive-test.js
+            cd tests
             ;;
         "all"|"")
             check_system
