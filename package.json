@@ -13,7 +13,9 @@
 		"test:cdp": "cd tests && ./run-tests.sh",
 		"test:quick": "cd tests && node quick-cdp-test.js",
 		"test:brop": "cd tests && node quick-brop-test.js",
-		"test:bridge": "cd tests && node unified-bridge-test.js"
+		"test:bridge": "cd tests && node unified-bridge-test.js",
+		"test:wikipedia": "cd tests && node playwright-wikipedia-test.js",
+		"test:wikipedia:simple": "cd tests && node simple-wikipedia-test.js"
 	},
 	"devDependencies": {
 		"@types/chrome": "^0.0.270",

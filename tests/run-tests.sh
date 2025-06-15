@@ -58,6 +58,20 @@ run_comprehensive_test() {
     fi
 }
 
+# Run Wikipedia test
+run_wikipedia_test() {
+    echo -e "\n${BLUE}Running Wikipedia Text Extraction Test...${NC}"
+    if cd .. && node tests/playwright-wikipedia-test.js; then
+        echo -e "${GREEN}✅ Wikipedia test passed${NC}"
+        cd tests
+        return 0
+    else
+        echo -e "${RED}❌ Wikipedia test failed${NC}"
+        cd tests
+        return 1
+    fi
+}
+
 # Run interactive test scenarios
 run_scenarios() {
     echo -e "\n${BLUE}Running Test Scenarios...${NC}"
@@ -103,6 +117,10 @@ main() {
             check_system
             run_scenarios
             ;;
+        "wikipedia")
+            check_system
+            run_wikipedia_test
+            ;;
         "interactive")
             check_system
             echo -e "\n${BLUE}Starting Interactive CDP Tester...${NC}"
@@ -128,6 +146,10 @@ main() {
                 failed=$((failed + 1))
             fi
             
+            if ! run_wikipedia_test; then
+                failed=$((failed + 1))
+            fi
+            
             echo -e "\n${BLUE}Test Summary:${NC}"
             if [ $failed -eq 0 ]; then
                 echo -e "${GREEN}🎉 All tests passed!${NC}"
@@ -144,6 +166,7 @@ main() {
             echo "  simple        - Run simple CDP test"
             echo "  comprehensive - Run comprehensive CDP relay test"
             echo "  scenarios     - Run predefined test scenarios"
+            echo "  wikipedia     - Run Wikipedia text extraction test"
             echo "  interactive   - Start interactive test environment"
             echo "  all           - Run all tests (default)"
             echo "  help          - Show this help"
