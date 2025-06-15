@@ -291,12 +291,26 @@ class MainBackground {
   }
 
   async processBROPCDPCommand(message) {
-    console.log('🎭 Processing wrapped CDP command via CDP Server');
+    console.log('🎭 Processing wrapped CDP command via CDP Server', message.method);
+    console.log('🎭 Full CDP message:', message);
 
-    // Use the CDP server to process the command
-    await this.cdpServer.processCDPCommand(message, (response) => {
-      this.sendToBridge(response);
-    });
+    try {
+      // Use the CDP server to process the command
+      await this.cdpServer.processCDPCommand(message, (response) => {
+        console.log('🎭 CDP command response:', response);
+        this.sendToBridge(response);
+      });
+    } catch (error) {
+      console.error('🎭 Error in processBROPCDPCommand:', error);
+      this.sendToBridge({
+        type: 'response',
+        id: message.id,
+        error: {
+          code: -32603,
+          message: `CDP processing failed: ${error.message}`
+        }
+      });
+    }
   }
 
   // CDP message handling is now delegated to CDPServer
