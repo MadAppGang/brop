@@ -11,10 +11,7 @@ Use `pnpm` instead of `npm` for all package management operations:
 ## Development Workflow
 
 - `pnpm run dev` - Start development environment with nodemon (auto-restart on file changes)
-- `pnpm run dev:legacy` - Use legacy auto-reload script (bridge-auto-reload.js)
-- `pnpm run bridge` - Start unified bridge server (recommended)
-- `pnpm run bridge:original` - Start original bridge server (legacy)
-- `pnpm run bridge:multiplexed` - Start multiplexed bridge server (legacy)
+- `pnpm run bridge` - Start unified bridge server directly
 
 ## Extension Packaging
 
@@ -45,7 +42,7 @@ Use `pnpm` instead of `npm` for all package management operations:
 ### 4. Bridge Server Logs
 
 - `pnpm run debug:logs` - Get bridge server console logs remotely
-- HTTP endpoint: `http://localhost:9225/logs?limit=50&level=info`
+- HTTP endpoint: `http://localhost:9222/logs?limit=50&level=info`
 - Log storage: Keeps last 1000 log entries in memory
 - Options: `--limit <number>`, `--level <level>`, `--summary`
 
@@ -76,8 +73,8 @@ This toolkit provides complete remote debugging capabilities:
 ## Key Files
 
 - `nodemon.json` - Nodemon configuration for auto-restart
-- `background_bridge_client.js` - Main extension background script with error collection
-- `bridge/bridge_server.js` - Bridge server with HTTP logs endpoint
+- `main_background.js` - Main extension background script with protocol routing
+- `bridge/bridge_server.js` - Unified bridge server with HTTP logs endpoint
 - `manifest.json` - Chrome extension manifest (remove activeTab permission if issues)
 - `get-bridge-logs.js` - Utility to fetch bridge server logs
 - Debug utilities: `debug-clear.js`, `get-extension-errors.js`, `debug-reload.js`, `debug-workflow.js`
@@ -85,17 +82,17 @@ This toolkit provides complete remote debugging capabilities:
 ## Testing
 
 Available test commands:
-- `pnpm run test:unified` - Test unified bridge server (recommended)
+- `pnpm run test:bridge` - Test unified bridge server (recommended)
 - `pnpm run test:brop` - Test BROP protocol specifically  
 - `pnpm run test:quick` - Quick CDP test
-- `pnpm run test:multiplexed` - Test multiplexed implementation
+- `pnpm run test:cdp` - Test CDP functionality
 
 Before committing changes, ensure:
 
 1. Bridge server starts without port conflicts
 2. Extension connects successfully
 3. No Chrome extension permission errors
-4. Run `pnpm run test:unified` to validate functionality
+4. Run `pnpm run test:bridge` to validate functionality
 5. Check bridge logs for any runtime issues
 
 ## Unified Architecture
@@ -104,5 +101,63 @@ The current system uses a unified bridge server that:
 - **BROP multiplexing**: Multiple BROP clients on port 9225
 - **CDP compatibility**: Playwright/Puppeteer support on port 9222
 - **Extension connection**: Single extension connection on port 9224
-- **No real Chrome dependency**: Everything routes through Chrome Extension APIs
+- **No external Chrome dependency**: Everything routes through Chrome Extension APIs
 - **Protocol separation**: Clean separation between BROP and CDP commands
+- **Centralized logging**: All logs accessible via HTTP endpoint
+- **Session management**: Proper CDP Target.* command handling for Playwright
+
+## Port Configuration
+
+- **Port 9222**: CDP endpoint for Playwright/Puppeteer clients
+- **Port 9224**: Extension WebSocket connection
+- **Port 9225**: BROP native client connections
+
+## Architecture Simplifications
+
+### Removed Components
+- ❌ `bridge_server_multiplexed.js` - Legacy multiplexed server
+- ❌ `start-multiplexed-system.js` - Outdated automation script
+- ❌ External Chrome dependency on port 9223
+- ❌ Separate BROP/CDP servers
+
+### Current Components
+- ✅ `bridge/bridge_server.js` - Unified server handling both protocols
+- ✅ `main_background.js` - Clean protocol router
+- ✅ Protocol separation within unified architecture
+- ✅ Direct Chrome Extension API usage only
+
+## Development Best Practices
+
+1. **Start with unified bridge**: Always use `pnpm run dev` or `pnpm run bridge`
+2. **Test both protocols**: Use `pnpm run test:bridge` to validate BROP and CDP
+3. **Monitor logs**: Use `pnpm run debug:logs` for real-time debugging
+4. **Check extension health**: Use `pnpm run debug:errors` for extension issues
+5. **Clean testing**: Use `pnpm run debug:clear` before test runs
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Port conflicts**: Bridge server fails to start
+   - Solution: Check for processes on ports 9222, 9224, 9225
+   - Kill conflicting processes: `lsof -ti:9222 | xargs kill`
+
+2. **Extension not connecting**: Bridge shows no extension connection
+   - Solution: Reload extension via `pnpm run debug:reload`
+   - Check extension errors: `pnpm run debug:errors`
+
+3. **CDP commands failing**: Playwright/Puppeteer not working
+   - Solution: Verify extension debugger permissions
+   - Test with `pnpm run test:cdp`
+
+4. **Performance issues**: Slow response times
+   - Solution: Check bridge logs for bottlenecks
+   - Monitor with `pnpm run debug:logs --limit 100`
+
+## Extension Development Notes
+
+- Extension uses service worker model (manifest v3)
+- Protocol routing handled in `main_background.js`
+- Content scripts inject into web pages for DOM access
+- Popup provides real-time status and debugging interface
+- No build process required - direct file loading
