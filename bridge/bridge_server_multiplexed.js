@@ -539,7 +539,7 @@ class MultiplexedBridgeServer {
           
           if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify(data));
-            this.log(`📥 BROP response sent to client`);
+            this.log("📥 BROP response sent to client");
           }
           return;
         }

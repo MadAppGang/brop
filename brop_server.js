@@ -1,14 +1,8 @@
-// Browser Remote Operations Protocol - Background Script (Bridge Client)
-// This version connects to the external bridge server as a WebSocket client
+// BROP Server - Browser Remote Operations Protocol Implementation
+// This class contains all BROP command handlers and can be used by different background scripts
 
-class BROPBridgeClient {
+class BROPServer {
   constructor() {
-    this.bridgeSocket = null;
-    this.reconnectAttempts = 0;
-    this.reconnectTimer = null;
-    this.connectionStatus = 'disconnected'; // 'connecting', 'connected', 'disconnected'
-    this.lastConnectionTime = null;
-    this.isConnected = false;
     this.enabled = true;
     this.callLogs = [];
     this.maxLogEntries = 1000;
@@ -16,12 +10,6 @@ class BROPBridgeClient {
     // Error collection system
     this.extensionErrors = [];
     this.maxErrorEntries = 100;
-
-    // Keepalive mechanism
-    this.pingInterval = null;
-    this.pingIntervalSeconds = 10; // Ping every 10 seconds
-
-    this.bridgeUrl = 'ws://localhost:9224'; // Extension server port
 
     // CDP debugger session management
     this.attachedTabs = new Set();
@@ -31,11 +19,7 @@ class BROPBridgeClient {
     this.messageHandlers = new Map();
     this.setupMessageHandlers();
     this.setupErrorHandlers();
-    this.setupTabEventListeners();
-    this.setupKeepalive();
-    this.setupCDPEventForwarding();
     this.loadSettings();
-    this.connectToBridge();
   }
 
   setupMessageHandlers() {
@@ -135,187 +119,13 @@ class BROPBridgeClient {
     this.saveSettings();
   }
 
-  setupKeepalive() {
-    // Set up Chrome alarms API for keepalive (fallback)
-    chrome.alarms.onAlarm.addListener((alarm) => {
-      if (alarm.name === 'mcp-keepalive') {
-        console.log('🔔 Chrome alarms keepalive triggered');
-        this.checkMCPConnection();
-      }
-    });
-
-    // Create the alarm on startup
-    chrome.runtime.onInstalled.addListener(() => {
-      chrome.alarms.create('mcp-keepalive', {
-        periodInMinutes: 0.33 // Every 20 seconds (shorter than 30s idle limitation)
-      });
-      console.log('🔔 Chrome alarms keepalive created (20s interval)');
-    });
-
-    console.log('🔔 Keepalive mechanism set up');
-  }
-
-  checkMCPConnection() {
-    if (this.isConnected && this.bridgeSocket) {
-      // Send a ping to keep the connection alive
-      this.sendPing();
-    } else {
-      console.log('🔔 Connection check: not connected, attempting to reconnect');
-      this.connectToBridge();
-    }
-  }
-
-  sendPing() {
-    if (this.isConnected && this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
-      try {
-        this.bridgeSocket.send(JSON.stringify({
-          type: 'ping',
-          timestamp: Date.now(),
-          keepalive: true
-        }));
-        console.log('🏓 Sent keepalive ping');
-      } catch (error) {
-        console.error('Error sending ping:', error);
-        this.isConnected = false;
-        this.connectionStatus = 'disconnected';
-      }
-    }
-  }
-
-  startPingInterval() {
-    // Clear any existing interval
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval);
-    }
-
-    // Start regular ping interval (10 seconds)
-    this.pingInterval = setInterval(() => {
-      this.sendPing();
-    }, this.pingIntervalSeconds * 1000);
-
-    console.log(`🏓 Started ping interval (${this.pingIntervalSeconds}s)`);
-  }
-
-  stopPingInterval() {
-    if (this.pingInterval) {
-      clearInterval(this.pingInterval);
-      this.pingInterval = null;
-      console.log('🏓 Stopped ping interval');
-    }
-  }
-
-  setupTabEventListeners() {
-    // Listen for tab removal events
-    chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
-      this.sendTabEvent('tab_removed', {
-        tabId: tabId,
-        windowId: removeInfo.windowId,
-        isWindowClosing: removeInfo.isWindowClosing,
-        timestamp: Date.now()
-      });
-    });
-
-    // Listen for tab updates (URL changes, title changes, etc.)
-    chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-      // Only send events for meaningful changes
-      if (changeInfo.status || changeInfo.url || changeInfo.title) {
-        this.sendTabEvent('tab_updated', {
-          tabId: tabId,
-          changeInfo: changeInfo,
-          url: tab.url,
-          title: tab.title,
-          status: tab.status,
-          timestamp: Date.now()
-        });
-      }
-    });
-
-    // Listen for tab activation (when user switches tabs)
-    chrome.tabs.onActivated.addListener((activeInfo) => {
-      this.sendTabEvent('tab_activated', {
-        tabId: activeInfo.tabId,
-        windowId: activeInfo.windowId,
-        timestamp: Date.now()
-      });
-    });
-
-    console.log('🔔 Tab event listeners set up');
-  }
-
-  setupCDPEventForwarding() {
-    // Forward CDP events from debugger to bridge
-    chrome.debugger.onEvent.addListener((source, method, params) => {
-      console.log(`🎭 CDP Event: ${method} from tab ${source.tabId}`);
-      
-      // CRITICAL FIX: Do NOT forward Target.attachedToTarget events
-      // These events are automatically generated by Chrome when our extension attaches debuggers
-      // But native Chrome CDP doesn't send these events for Target.createTarget
-      // Forwarding them causes "Duplicate target" errors in Playwright
-      if (method === 'Target.attachedToTarget') {
-        console.log(`🎭 BLOCKED: Not forwarding Target.attachedToTarget event to prevent duplicates`);
-        console.log(`🎭 REASON: Native Chrome doesn't send these events, only our extension does`);
-        console.log(`🎭 RESULT: Matching native Chrome behavior exactly`);
-        return; // Block this event from being forwarded
-      }
-      
-      if (this.isConnected && this.bridgeSocket) {
-        this.sendToBridge({
-          type: 'cdp_event',
-          method: method,
-          params: params,
-          tabId: source.tabId
-        });
-      }
-    });
-
-    // Handle debugger detach events
-    chrome.debugger.onDetach.addListener((source, reason) => {
-      console.log(`🎭 CDP Debugger detached from tab ${source.tabId}: ${reason}`);
-      this.attachedTabs.delete(source.tabId);
-      this.debuggerSessions.delete(source.tabId);
-    });
-
-    // Clean up debugger sessions when tabs are closed
-    chrome.tabs.onRemoved.addListener((tabId) => {
-      if (this.attachedTabs.has(tabId)) {
-        console.log(`🎭 Cleaning up CDP session for closed tab ${tabId}`);
-        chrome.debugger.detach({ tabId }).catch(() => {
-          // Ignore errors when tab is already gone
-        });
-        this.attachedTabs.delete(tabId);
-        this.debuggerSessions.delete(tabId);
-      }
-    });
-
-    console.log('🎭 CDP event forwarding set up');
-  }
-
-  sendTabEvent(eventType, eventData) {
-    if (!this.isConnected || !this.bridgeSocket) {
-      return; // No connection to bridge
-    }
-
-    const eventMessage = {
-      type: 'event',
-      event_type: eventType,
-      ...eventData
-    };
-
-    try {
-      this.bridgeSocket.send(JSON.stringify(eventMessage));
-      console.log(`🔔 Sent tab event: ${eventType} for tab ${eventData.tabId}`);
-    } catch (error) {
-      console.error('Error sending tab event:', error);
-    }
-  }
-
   async loadSettings() {
     try {
       const result = await chrome.storage.local.get(['brop_enabled', 'brop_logs', 'brop_errors']);
       this.enabled = result.brop_enabled !== false;
       this.callLogs = result.brop_logs || [];
       this.extensionErrors = result.brop_errors || [];
-      console.log(`BROP bridge client loaded: ${this.enabled ? 'enabled' : 'disabled'}`);
+      console.log(`BROP server loaded: ${this.enabled ? 'enabled' : 'disabled'}`);
     } catch (error) {
       console.error('Error loading BROP settings:', error);
     }
@@ -333,518 +143,49 @@ class BROPBridgeClient {
     }
   }
 
-  connectToBridge() {
-    if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
-      return; // Already connected
-    }
-
-    if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.CONNECTING) {
-      return; // Already trying to connect
-    }
-
-    this.connectionStatus = 'connecting';
-    this.broadcastStatusUpdate();
-
-    console.log(`Connecting to BROP bridge server at ${this.bridgeUrl}... (attempt ${this.reconnectAttempts + 1})`);
-
-    try {
-      this.bridgeSocket = new WebSocket(this.bridgeUrl);
-
-      this.bridgeSocket.onopen = () => {
-        console.log('✅ Connected to BROP bridge server');
-        this.isConnected = true;
-        this.connectionStatus = 'connected';
-        this.lastConnectionTime = Date.now();
-        this.reconnectAttempts = 0;
-
-        // Clear any pending reconnect timer
-        if (this.reconnectTimer) {
-          clearTimeout(this.reconnectTimer);
-          this.reconnectTimer = null;
-        }
-
-        // Start ping interval to keep connection alive
-        this.startPingInterval();
-
-        // Send connection confirmation
-        this.sendToBridge({
-          type: 'extension_ready',
-          message: 'BROP extension connected and ready',
-          timestamp: Date.now()
-        });
-
-        this.broadcastStatusUpdate();
-      };
-
-      this.bridgeSocket.onmessage = (event) => {
-        this.handleBridgeMessage(event.data);
-      };
-
-      this.bridgeSocket.onclose = (event) => {
-        console.log(`🔌 Disconnected from BROP bridge server (code: ${event.code})`);
-        this.isConnected = false;
-        this.connectionStatus = 'disconnected';
-        this.bridgeSocket = null;
-
-        // Stop ping interval when disconnected
-        this.stopPingInterval();
-
-        this.broadcastStatusUpdate();
-
-        // Attempt to reconnect
-        this.scheduleReconnect();
-      };
-
-      this.bridgeSocket.onerror = (error) => {
-        console.error('Bridge connection error:', error);
-        this.isConnected = false;
-        this.connectionStatus = 'disconnected';
-
-        // Stop ping interval on error
-        this.stopPingInterval();
-
-        this.broadcastStatusUpdate();
-      };
-
-    } catch (error) {
-      console.error('Failed to create WebSocket connection:', error);
-      this.connectionStatus = 'disconnected';
-      this.broadcastStatusUpdate();
-      this.scheduleReconnect();
-    }
-  }
-
-  scheduleReconnect() {
-    // Clear any existing timer
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-    }
-
-    // Always try to reconnect every 5 seconds, don't give up
-    const delay = 5000; // Fixed 5 second interval
-
-    this.reconnectAttempts++;
-    console.log(`Scheduling reconnect to bridge server in ${delay}ms (attempt ${this.reconnectAttempts})`);
-
-    this.reconnectTimer = setTimeout(() => {
-      this.connectToBridge();
-    }, delay);
-  }
-
-  generateUUID() {
-    // Generate RFC 4122 compliant UUID v4
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-      const r = Math.random() * 16 | 0;
-      const v = c == 'x' ? r : (r & 0x3 | 0x8);
-      return v.toString(16);
-    });
-  }
-
-  getTabIdFromTarget(targetId) {
-    // Extract tab ID from target ID format: "tab_123456"
-    if (targetId?.startsWith('tab_')) {
-      const tabId = Number.parseInt(targetId.replace('tab_', ''));
-      return Number.isNaN(tabId) ? null : tabId;
-    }
-    return null;
-  }
-
-  getSecurityOrigin(url) {
-    // Extract security origin from URL
-    try {
-      if (url === 'about:blank' || url.startsWith('data:')) {
-        return 'null';
-      }
-      const urlObj = new URL(url);
-      return urlObj.origin;
-    } catch (error) {
-      return 'null';
-    }
-  }
-
-  broadcastStatusUpdate() {
-    // Broadcast status update to any listening popup or content scripts
-    const statusUpdate = {
-      type: 'BRIDGE_STATUS_UPDATE',
-      connectionStatus: this.connectionStatus,
-      isConnected: this.isConnected,
-      reconnectAttempts: this.reconnectAttempts,
-      lastConnectionTime: this.lastConnectionTime,
-      bridgeUrl: this.bridgeUrl,
-      timestamp: Date.now()
-    };
-
-    // Send to any open popup
-    chrome.runtime.sendMessage(statusUpdate).catch(() => {
-      // Ignore errors if no popup is open
-    });
-  }
-
-  sendToBridge(message) {
-    if (this.bridgeSocket && this.bridgeSocket.readyState === WebSocket.OPEN) {
-      this.bridgeSocket.send(JSON.stringify(message));
-      return true;
-    }
-    console.warn('Bridge connection not available, cannot send message');
-    return false;
-  }
-
-  async handleBridgeMessage(data) {
-    let message;
-    try {
-      message = JSON.parse(data);
-      const messageType = message.type;
-
-      if (messageType === 'welcome') {
-        console.log('Bridge server welcome:', message.message);
-        return;
-      }
-
-      if (messageType === 'pong') {
-        console.log('🏓 Received pong from bridge server');
-        return;
-      }
-
-      if (messageType === 'response') {
-        // Handle server status responses
-        if (this.pendingServerStatusRequests && this.pendingServerStatusRequests.has(message.id)) {
-          const { resolve, reject } = this.pendingServerStatusRequests.get(message.id);
-          this.pendingServerStatusRequests.delete(message.id);
-
-          if (message.success) {
-            resolve(message.result);
-          } else {
-            reject(new Error(message.error || 'Server status request failed'));
-          }
-          return;
-        }
-      }
-
-      if (messageType === 'brop_command') {
-        await this.processBROPCommand(message);
-      } else if (messageType === 'cdp_command') {
-        await this.processCDPCommand(message);
-      } else {
-        console.warn('Unknown message type from bridge:', messageType);
-      }
-    } catch (error) {
-      console.error('Error handling bridge message:', error);
-      // Don't let errors disconnect us - send error response
-      if (message && message.id) {
-        this.sendToBridge({
-          type: 'response',
-          id: message.id,
-          success: false,
-          error: `Message handling error: ${error.message}`
-        });
-      }
-    }
-  }
-
+  // Main BROP command processor
   async processBROPCommand(message) {
     const { id, method, params } = message;
 
-    console.log('🔧 DEBUG processBROPCommand:', {
-      messageKeys: Object.keys(message),
+    console.log('🔧 BROP Server processing command:', {
       method: method,
       methodType: typeof method,
-      fullMessage: JSON.stringify(message).substring(0, 200)
+      hasParams: !!params
     });
 
     if (!method) {
-      console.error('🔧 ERROR: method is undefined!', {
-        message: message
-      });
-
-      this.sendToBridge({
-        type: 'response',
-        id: id,
-        success: false,
-        error: 'Invalid command: missing method'
-      });
-      return;
+      throw new Error('Invalid command: missing method');
     }
 
     // Check if service is enabled
     if (!this.enabled) {
       console.log(`BROP command ignored (service disabled): ${method}`);
-      this.sendToBridge({
-        type: 'response',
-        id: id,
-        success: false,
-        error: 'BROP service is disabled'
-      });
-      return;
+      throw new Error('BROP service is disabled');
     }
 
+    const handler = this.messageHandlers.get(method);
+    if (!handler) {
+      throw new Error(`Unsupported BROP command: ${method}`);
+    }
+
+    const startTime = Date.now();
     try {
-      const handler = this.messageHandlers.get(method);
-      if (handler) {
-        const result = await handler(params || {});
+      const result = await handler(params || {});
+      const duration = Date.now() - startTime;
 
-        // Log successful BROP command
-        this.logCall(method, 'BROP', params, result, null, null);
+      // Log successful BROP command
+      this.logCall(method, 'BROP', params, result, null, duration);
 
-        this.sendToBridge({
-          type: 'response',
-          id: id,
-          success: true,
-          result: result
-        });
-      } else {
-        throw new Error(`Unsupported BROP command: ${method}`);
-      }
+      return result;
     } catch (error) {
+      const duration = Date.now() - startTime;
       console.error(`BROP command error (${method}):`, error);
       this.logError('BROP Command Error', `${method}: ${error.message}`, error.stack);
 
       // Log failed BROP command
-      this.logCall(method, 'BROP', params, null, error.message, null);
+      this.logCall(method, 'BROP', params, null, error.message, duration);
 
-      this.sendToBridge({
-        type: 'response',
-        id: id,
-        success: false,
-        error: error.message
-      });
-    }
-  }
-
-  async processCDPCommand(message) {
-    const { id, method, params, sessionId, clientId } = message;
-
-    console.log('🎭 Processing real CDP command:', {
-      method: method,
-      id: id,
-      clientId: clientId,
-      sessionId: sessionId,
-      paramsKeys: params ? Object.keys(params) : []
-    });
-
-    if (!method) {
-      console.error('🎭 ERROR: CDP method is undefined!', message);
-      this.sendToBridge({
-        type: 'response',
-        id: id,
-        error: { code: -32600, message: 'Invalid CDP command: missing method' }
-      });
-      return;
-    }
-
-    try {
-      let result = null;
-
-      // Handle browser-level commands that aren't available in debugger context
-      if (method === 'Browser.getVersion') {
-        result = {
-          protocolVersion: '1.3',
-          product: `Chrome/${navigator.userAgent.match(/Chrome\/([0-9.]+)/)?.[1] || 'unknown'}`,
-          revision: '@' + Date.now(),
-          userAgent: navigator.userAgent,
-          jsVersion: '12.0.0',
-          browser: 'Chrome',
-          browserVersion: navigator.userAgent.match(/Chrome\/([0-9.]+)/)?.[1] || 'unknown'
-        };
-      } else if (method === 'Target.getTargets') {
-        // Get all tabs using Chrome Extension API
-        const tabs = await chrome.tabs.query({});
-        const targets = tabs.map(tab => ({
-          targetId: `tab_${tab.id}`,
-          type: 'page',
-          title: tab.title || 'New Tab',
-          url: tab.url || 'about:blank',
-          attached: this.attachedTabs.has(tab.id),
-          canAccessOpener: false,
-          browserContextId: 'default'
-        }));
-        result = { targetInfos: targets };
-      } else if (method === 'Target.getBrowserContexts') {
-        result = { browserContextIds: ['default'] };
-      } else if (method === 'Target.createBrowserContext') {
-        result = { browserContextId: `context_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` };
-      } else if (method === 'Browser.setDownloadBehavior') {
-        // Browser-level command, just return empty success
-        result = {};
-      } else if (method === 'Browser.getWindowForTarget') {
-        // Browser-level command, return default window info
-        const { targetId } = params;
-        result = {
-          windowId: 1,
-          bounds: {
-            left: 0,
-            top: 0,
-            width: 1200,
-            height: 800
-          }
-        };
-      } else if (method === 'Target.setDiscoverTargets') {
-        // Handle target discovery - essential for Playwright's page tracking
-        const { discover = true } = params;
-        console.log(`🎭 CDP Target.setDiscoverTargets: discover=${discover}`);
-        this.targetDiscoveryEnabled = discover;
-        result = {}; // Return empty success
-      } else if (method === 'Target.setAutoAttach') {
-        // Handle auto-attach as fallback since it involves browser-level target management
-        const { autoAttach = true, waitForDebuggerOnStart = false, flatten = true } = params;
-        console.log(`🎭 CDP Target.setAutoAttach: autoAttach=${autoAttach}`);
-        this.autoAttachEnabled = autoAttach;
-        result = {}; // Return empty success
-      } else if (method === 'Target.getTargetInfo') {
-        // Handle target info as fallback to avoid chrome-extension:// URL issues
-        const { targetId } = params;
-        
-        let tab;
-        let actualTargetId = targetId;
-        
-        if (!targetId) {
-          // If no targetId provided, get the current active tab
-          const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-          if (tabs.length === 0) {
-            throw new Error('No active tab found and no targetId provided');
-          }
-          tab = tabs[0];
-          actualTargetId = `tab_${tab.id}`;
-        } else if (targetId.startsWith('tab_')) {
-          // Extract tab ID from target ID
-          const tabId = parseInt(targetId.replace('tab_', ''));
-          tab = await chrome.tabs.get(tabId);
-        } else {
-          // If it's not a tab target ID, try to get active tab
-          const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-          tab = tabs[0];
-          actualTargetId = `tab_${tab.id}`;
-        }
-        
-        result = {
-          targetInfo: {
-            targetId: actualTargetId,
-            type: 'page',
-            title: tab.title || 'New Tab',
-            url: tab.url || 'about:blank',
-            attached: this.attachedTabs.has(tab.id),
-            canAccessOpener: false,
-            browserContextId: 'default'
-          }
-        }
-      } else if (method === 'Target.createTarget') {
-        // Handle target creation since it involves browser contexts
-        console.log(`🎭 DEBUG: Processing Target.createTarget command with ID ${id}`);
-        const { url = 'about:blank', browserContextId } = params;
-        
-        // CRITICAL FIX: Create tab but return response IMMEDIATELY
-        // The Target.attachedToTarget event will be sent asynchronously AFTER the response
-        const tab = await chrome.tabs.create({ url: url, active: false });
-        const targetId = `tab_${tab.id}`;
-        
-        // Return result IMMEDIATELY - this is the key fix for the assertion error
-        result = { 
-          targetId: targetId
-        };
-        
-        console.log(`🎭 DEBUG: Target.createTarget returning result immediately:`, result);
-        
-        // CRITICAL CHANGE: Do NOT send Target.attachedToTarget from extension
-        // The bridge will generate and send this event with proper session management
-        // Sending it from both places causes duplication and assertion errors
-        console.log(`🎭 IMPORTANT: Extension will NOT send Target.attachedToTarget event for ${targetId}`);
-        console.log(`🎭 REASON: Bridge handles all Target.attachedToTarget events with proper session management`);
-        console.log(`🎭 RESULT: Avoiding duplicate events that cause Playwright assertion errors`);
-        
-        // CRITICAL FIX: Do NOT attach debugger to CDP-created tabs
-        // Playwright (the CDP client) needs to be the one to attach to these tabs
-        // Our extension attaching a debugger causes "Another debugger is already attached" conflicts
-        console.log(`🎭 IMPORTANT: NOT attaching debugger to CDP-created tab ${tab.id}`);
-        console.log(`🎭 REASON: Playwright/CDP client will attach its own debugger to this tab`);
-        console.log(`🎭 RESULT: Avoiding "Another debugger is already attached" conflict`);
-        
-        // Mark tab as CDP-managed so we don't auto-attach later
-        // but don't add to attachedTabs since we didn't actually attach
-        this.cdpManagedTabs = this.cdpManagedTabs || new Set();
-        this.cdpManagedTabs.add(tab.id);
-      } else if (method === 'Extension.reload') {
-        result = await this.handleCDPExtensionReload(params);
-      } else {
-        // For all other commands, use real CDP pass-through
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        const tabId = tabs[0]?.id;
-
-        if (!tabId) {
-          throw new Error('No active tab found for CDP command');
-        }
-
-        // Check if this tab was created via CDP (managed by Playwright)
-        const isCdpManaged = this.cdpManagedTabs && this.cdpManagedTabs.has(tabId);
-        
-        if (isCdpManaged) {
-          console.log(`🎭 SKIPPING: Tab ${tabId} is CDP-managed, not attaching our debugger`);
-          console.log(`🎭 REASON: CDP client (Playwright) should manage this tab's debugger`);
-          throw new Error('Cannot execute CDP commands on CDP-managed tabs. Use CDP client directly.');
-        }
-
-        // Attach debugger if not already attached (for non-CDP-managed tabs)
-        if (!this.attachedTabs.has(tabId)) {
-          console.log(`🎭 Attaching debugger to tab ${tabId} for CDP`);
-          await chrome.debugger.attach({ tabId }, "1.3");
-          this.attachedTabs.add(tabId);
-          console.log(`✅ Debugger attached to tab ${tabId}`);
-        }
-
-        // Send command directly to Chrome's CDP
-        console.log(`🎭 Sending real CDP command: ${method}`);
-        result = await chrome.debugger.sendCommand(
-          { tabId }, 
-          method, 
-          params || {}
-        );
-      }
-
-      console.log(`✅ CDP command ${method} executed successfully`);
-
-      // Send response back through bridge
-      console.log(`🎭 DEBUG: Sending response for ${method} (ID: ${id}):`, result);
-      this.sendToBridge({
-        type: 'response',
-        id: id,
-        result: result
-      });
-      console.log(`🎭 DEBUG: Response sent for ${method} (ID: ${id})`);
-
-    } catch (err) {
-      console.error(`CDP command error (${method}):`, err);
-      
-      this.sendToBridge({
-        type: 'response',
-        id: id,
-        error: { 
-          code: -32603, 
-          message: `CDP command failed: ${err.message}` 
-        }
-      });
-    }
-  }
-
-  // Keep only the extension reload method since it's not a standard CDP command
-
-  async handleCDPExtensionReload(params) {
-    const { reason = 'CDP reload requested', delay = 1000 } = params;
-    
-    try {
-      console.log(`🎭 CDP Extension reload requested: ${reason}`);
-      
-      // Use existing BROP reload functionality
-      setTimeout(() => {
-        console.log(`[CDP] Reloading extension: ${reason}`);
-        chrome.runtime.reload();
-      }, delay);
-      
-      return {
-        message: `Extension will reload in ${delay}ms`,
-        reason: reason,
-        timestamp: Date.now()
-      };
-
-    } catch (error) {
-      throw new Error(`Extension reload failed: ${error.message}`);
+      throw error;
     }
   }
 
@@ -1185,12 +526,26 @@ class BROPBridgeClient {
     };
   }
 
-  // Additional BROP methods would be implemented here...
-  async handleClick(params) { /* Implementation */ }
-  async handleType(params) { /* Implementation */ }
-  async handleWaitForElement(params) { /* Implementation */ }
-  async handleEvaluateJS(params) { /* Implementation */ }
-  async handleGetElement(params) { /* Implementation */ }
+  // Additional BROP methods (stubs for now, can be implemented later)
+  async handleClick(params) { 
+    throw new Error('Click method not yet implemented');
+  }
+  
+  async handleType(params) { 
+    throw new Error('Type method not yet implemented');
+  }
+  
+  async handleWaitForElement(params) { 
+    throw new Error('WaitForElement method not yet implemented');
+  }
+  
+  async handleEvaluateJS(params) { 
+    throw new Error('EvaluateJS method not yet implemented');
+  }
+  
+  async handleGetElement(params) { 
+    throw new Error('GetElement method not yet implemented');
+  }
 
   async handleGetSimplifiedDOM(params) {
     const { tabId, format = 'markdown', enableDetailedResponse = false } = params;
@@ -1215,7 +570,6 @@ class BROPBridgeClient {
     console.log(`🔧 DEBUG handleGetSimplifiedDOM: Extracting ${format} from tab ${tabId} - "${targetTab.title}"`);
 
     try {
-
       // First inject the appropriate library
       await chrome.scripting.executeScript({
         target: { tabId: tabId },
@@ -1381,7 +735,6 @@ class BROPBridgeClient {
     }
   }
 
-
   // Tab Management Methods
   async handleCreateTab(params) {
     const { url = 'about:blank', active = true } = params;
@@ -1529,7 +882,7 @@ class BROPBridgeClient {
   async handleGetExtensionVersion(params) {
     try {
       console.log('🔢 Getting extension version...');
-      
+
       const manifest = chrome.runtime.getManifest();
       return {
         success: true,
@@ -1749,147 +1102,9 @@ class BROPBridgeClient {
   }
 }
 
-// Runtime message handling for popup communication
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  const messageType = message.type;
-
-  if (messageType === 'GET_STATUS') {
-    sendResponse({
-      enabled: bropBridgeClient.enabled,
-      connected: bropBridgeClient.isConnected,
-      connectionStatus: bropBridgeClient.connectionStatus,
-      reconnectAttempts: bropBridgeClient.reconnectAttempts,
-      lastConnectionTime: bropBridgeClient.lastConnectionTime,
-      bridgeUrl: bropBridgeClient.bridgeUrl,
-      totalLogs: bropBridgeClient.callLogs.length,
-      activeSessions: bropBridgeClient.isConnected ? 1 : 0
-    });
-  } else if (messageType === 'GET_SERVER_STATUS') {
-    // Send server status request through existing bridge connection
-    if (!bropBridgeClient.isConnected) {
-      sendResponse({
-        success: false,
-        error: 'Bridge not connected'
-      });
-      return;
-    }
-
-    // Generate unique request ID
-    const requestId = Date.now();
-
-    // Create a promise that will be resolved when we get the response
-    const serverStatusPromise = new Promise((resolve, reject) => {
-      // Store the response handler
-      bropBridgeClient.pendingServerStatusRequests = bropBridgeClient.pendingServerStatusRequests || new Map();
-      bropBridgeClient.pendingServerStatusRequests.set(requestId, { resolve, reject });
-
-      // Set timeout
-      setTimeout(() => {
-        if (bropBridgeClient.pendingServerStatusRequests.has(requestId)) {
-          bropBridgeClient.pendingServerStatusRequests.delete(requestId);
-          reject(new Error('Server status request timeout'));
-        }
-      }, 5000);
-    });
-
-    // Send the request
-    bropBridgeClient.sendToBridge({
-      id: requestId,
-      method: 'get_server_status',
-      params: {}
-    });
-
-    // Wait for response and send back to popup
-    serverStatusPromise.then(result => {
-      sendResponse({
-        success: true,
-        result: result
-      });
-    }).catch(error => {
-      sendResponse({
-        success: false,
-        error: error.message
-      });
-    });
-
-    return true; // Keep message channel open for async response
-  } else if (messageType === 'SET_ENABLED') {
-    bropBridgeClient.enabled = message.enabled;
-    bropBridgeClient.saveSettings();
-    sendResponse({ success: true });
-  } else if (messageType === 'GET_LOGS') {
-    const limit = message.limit || 100;
-    const tabId = message.tabId;
-
-    console.log(`🔧 DEBUG: Received GET_LOGS runtime message for tab ${tabId}`);
-
-    {
-      // Return extension call logs with full original format
-      const logs = bropBridgeClient.callLogs.slice(-limit);
-      console.log(`🔧 DEBUG: No console messages for tab ${tabId}, returning ${logs.length} extension logs`);
-      sendResponse({
-        success: true,
-        logs: logs.map(log => ({
-          // Preserve original fields for popup display
-          id: log.id,
-          method: log.method,
-          type: log.type,
-          params: log.params,
-          result: log.result,
-          error: log.error,
-          success: log.success,
-          timestamp: log.timestamp,
-          duration: log.duration,
-          // Also include the console-compatible fields
-          level: log.success ? 'info' : 'error',
-          message: `${log.method}: ${log.success ? 'success' : log.error}`,
-          source: 'extension_background'
-        })),
-        source: 'extension_fallback'
-      });
-    }
-  } else if (messageType === 'CLEAR_LOGS') {
-    bropBridgeClient.callLogs = [];
-    bropBridgeClient.saveSettings();
-    sendResponse({ success: true });
-  } else if (messageType === 'BROP_COMMAND') {
-    // Handle direct BROP commands from popup (these respect the enabled setting)
-    if (!bropBridgeClient.enabled) {
-      sendResponse({ success: false, error: 'BROP service is disabled' });
-      return;
-    }
-
-    const startTime = Date.now();
-    bropBridgeClient.processBROPCommand(message).then(result => {
-      const duration = Date.now() - startTime;
-      bropBridgeClient.logCall(
-        message.method || 'unknown',
-        'BROP',
-        message.params,
-        result,
-        null,
-        duration
-      );
-      sendResponse({ success: true, response: result });
-    }).catch(error => {
-      const duration = Date.now() - startTime;
-      bropBridgeClient.logCall(
-        message.method || 'unknown',
-        'BROP',
-        message.params,
-        null,
-        error.message,
-        duration
-      );
-      sendResponse({ success: false, error: error.message });
-    });
-    return true; // Async response
-  }
-});
-
-// Initialize the bridge client
-const bropBridgeClient = new BROPBridgeClient();
-
-// Export for debugging
-self.bropBridgeClient = bropBridgeClient;/* Force extension reload - Sun 15 Jun 2025 13:56:52 AEST */
-/* Trigger extension reload for version 1.0.8 - Sun 15 Jun 2025 14:28:30 AEST */
+// Export for use in background scripts
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = BROPServer;
+} else {
+  self.BROPServer = BROPServer;
+}

@@ -1,5 +1,5 @@
-const { chromium } = require('playwright');
-const WebSocket = require('ws');
+import { chromium } from 'playwright';
+import WebSocket from 'ws';
 
 async function testCDPRelay() {
   console.log('🧪 Simple CDP Relay Test');
@@ -100,14 +100,12 @@ function runTest(ws, testName, command) {
 }
 
 // Run the test
-if (require.main === module) {
-  testCDPRelay().then(() => {
-    console.log('\n🎉 Test completed!');
-    process.exit(0);
-  }).catch(error => {
-    console.error('\n💥 Test failed:', error);
-    process.exit(1);
-  });
-}
+testCDPRelay().then(() => {
+  console.log('\n🎉 Test completed!');
+  process.exit(0);
+}).catch(error => {
+  console.error('\n💥 Test failed:', error);
+  process.exit(1);
+});
 
-module.exports = testCDPRelay;
+export default testCDPRelay;

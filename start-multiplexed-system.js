@@ -28,8 +28,7 @@ class MultiplexedSystemLauncher {
       // Wait for services to initialize
       await this.wait(3000);
       
-      // Run system test
-      await this.runSystemTest();
+      console.log('✅ Multiplexed system started successfully');
       
     } catch (error) {
       console.error('💥 Failed to start system:', error);
@@ -161,31 +160,6 @@ class MultiplexedSystemLauncher {
     }
   }
 
-  async runSystemTest() {
-    console.log('\n🧪 Running system integration test...');
-    console.log('-'.repeat(30));
-    
-    const testProcess = spawn('node', ['test-multiplexed-system.js'], {
-      stdio: 'inherit',
-      cwd: process.cwd()
-    });
-
-    return new Promise((resolve, reject) => {
-      testProcess.on('exit', (code) => {
-        if (code === 0) {
-          console.log('\n✅ System test completed successfully');
-          resolve();
-        } else {
-          console.log(`\n❌ System test failed with code ${code}`);
-          reject(new Error(`Test failed with code ${code}`));
-        }
-      });
-
-      testProcess.on('error', (error) => {
-        reject(new Error(`Test process error: ${error.message}`));
-      });
-    });
-  }
 
   wait(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
@@ -223,9 +197,6 @@ class MultiplexedSystemLauncher {
     console.log('   Replace background.js with background_bridge_client_multiplexed.js');
     console.log('');
     console.log('4. Reload Chrome Extension in chrome://extensions/');
-    console.log('');
-    console.log('5. Run System Test (Terminal 3):');
-    console.log('   node test-multiplexed-system.js');
     console.log('');
     console.log('Expected Results:');
     console.log('- ✅ BROP native commands work via extension APIs');

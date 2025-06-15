@@ -12,7 +12,9 @@ Use `pnpm` instead of `npm` for all package management operations:
 
 - `pnpm run dev` - Start development environment with nodemon (auto-restart on file changes)
 - `pnpm run dev:legacy` - Use legacy auto-reload script (bridge-auto-reload.js)
-- `pnpm run bridge` - Start bridge server directly without auto-reload
+- `pnpm run bridge` - Start unified bridge server (recommended)
+- `pnpm run bridge:original` - Start original bridge server (legacy)
+- `pnpm run bridge:multiplexed` - Start multiplexed bridge server (legacy)
 
 ## Extension Packaging
 
@@ -82,10 +84,25 @@ This toolkit provides complete remote debugging capabilities:
 
 ## Testing
 
+Available test commands:
+- `pnpm run test:unified` - Test unified bridge server (recommended)
+- `pnpm run test:brop` - Test BROP protocol specifically  
+- `pnpm run test:quick` - Quick CDP test
+- `pnpm run test:multiplexed` - Test multiplexed implementation
+
 Before committing changes, ensure:
 
 1. Bridge server starts without port conflicts
 2. Extension connects successfully
 3. No Chrome extension permission errors
-4. Run debug workflow to validate functionality
+4. Run `pnpm run test:unified` to validate functionality
 5. Check bridge logs for any runtime issues
+
+## Unified Architecture
+
+The current system uses a unified bridge server that:
+- **BROP multiplexing**: Multiple BROP clients on port 9225
+- **CDP compatibility**: Playwright/Puppeteer support on port 9222
+- **Extension connection**: Single extension connection on port 9224
+- **No real Chrome dependency**: Everything routes through Chrome Extension APIs
+- **Protocol separation**: Clean separation between BROP and CDP commands
