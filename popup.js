@@ -1,389 +1,443 @@
 // Browser Remote Operations Protocol - Popup Script
 
 class BROPPopup {
-  constructor() {
-    this.initializePopup();
-    this.setupEventListeners();
-    this.startStatusUpdates();
-  }
+	constructor() {
+		this.initializePopup();
+		this.setupEventListeners();
+		this.startStatusUpdates();
+	}
 
-  async initializePopup() {
-    await this.updateStatus();
-    await this.updateActiveTab();
-    await this.updateConsolePreview();
-  }
+	async initializePopup() {
+		await this.updateStatus();
+		await this.updateActiveTab();
+		await this.updateConsolePreview();
+	}
 
-  setupEventListeners() {
-    // Tab switching
-    document.querySelectorAll('.tab-link').forEach(tab => {
-      tab.addEventListener('click', (e) => {
-        e.preventDefault();
-        const targetTab = e.target.dataset.tab;
-        this.switchTab(targetTab);
-      });
-    });
+	setupEventListeners() {
+		// Tab switching
+		for (const tab of document.querySelectorAll(".tab-link")) {
+			tab.addEventListener("click", (e) => {
+				e.preventDefault();
+				const targetTab = e.target.dataset.tab;
+				this.switchTab(targetTab);
+			});
+		}
 
-    // Handle optional buttons that might not exist
-    const clearLogsBtn = document.getElementById('clear-logs');
-    if (clearLogsBtn) {
-      clearLogsBtn.addEventListener('click', () => {
-        this.clearConsoleLogs();
-      });
-    }
+		// Handle optional buttons that might not exist
+		const clearLogsBtn = document.getElementById("clear-logs");
+		if (clearLogsBtn) {
+			clearLogsBtn.addEventListener("click", () => {
+				this.clearConsoleLogs();
+			});
+		}
 
-    const testConnectionBtn = document.getElementById('test-connection');
-    if (testConnectionBtn) {
-      testConnectionBtn.addEventListener('click', () => {
-        this.testConnection();
-      });
-    }
+		const testConnectionBtn = document.getElementById("test-connection");
+		if (testConnectionBtn) {
+			testConnectionBtn.addEventListener("click", () => {
+				this.testConnection();
+			});
+		}
 
-    const refreshLogsBtn = document.getElementById('refresh-logs');
-    if (refreshLogsBtn) {
-      refreshLogsBtn.addEventListener('click', () => {
-        this.updateStatus();
-      });
-    }
+		const refreshLogsBtn = document.getElementById("refresh-logs");
+		if (refreshLogsBtn) {
+			refreshLogsBtn.addEventListener("click", () => {
+				this.updateStatus();
+			});
+		}
 
-    // Full screen logs button
-    const fullScreenBtn = document.getElementById('open-fullscreen');
-    if (fullScreenBtn) {
-      fullScreenBtn.addEventListener('click', () => {
-        this.openFullScreenLogs();
-      });
-    }
+		// Full screen logs button
+		const fullScreenBtn = document.getElementById("open-fullscreen");
+		if (fullScreenBtn) {
+			fullScreenBtn.addEventListener("click", () => {
+				this.openFullScreenLogs();
+			});
+		}
 
-    // Clear all logs button
-    const clearAllLogsBtn = document.getElementById('clear-all-logs');
-    if (clearAllLogsBtn) {
-      clearAllLogsBtn.addEventListener('click', () => {
-        this.clearConsoleLogs();
-      });
-    }
+		// Clear all logs button
+		const clearAllLogsBtn = document.getElementById("clear-all-logs");
+		if (clearAllLogsBtn) {
+			clearAllLogsBtn.addEventListener("click", () => {
+				this.clearConsoleLogs();
+			});
+		}
 
-    // Service toggle switch
-    const serviceToggle = document.getElementById('service-toggle');
-    if (serviceToggle) {
-      serviceToggle.addEventListener('click', () => {
-        this.toggleService();
-      });
-    }
-  }
+		// Service toggle switch
+		const serviceToggle = document.getElementById("service-toggle");
+		if (serviceToggle) {
+			serviceToggle.addEventListener("click", () => {
+				this.toggleService();
+			});
+		}
+	}
 
-  async toggleService() {
-    try {
-      // Get current status first
-      const currentStatus = await chrome.runtime.sendMessage({ type: 'GET_STATUS' });
-      
-      // Toggle the service
-      const newEnabled = !currentStatus.enabled;
-      const response = await chrome.runtime.sendMessage({ 
-        type: 'SET_ENABLED', 
-        enabled: newEnabled 
-      });
-      
-      console.log('Service toggle response:', response);
-      
-      // Update UI immediately
-      await this.updateStatus();
-      
-    } catch (error) {
-      console.error('Error toggling service:', error);
-    }
-  }
+	async toggleService() {
+		try {
+			// Get current status first
+			const currentStatus = await chrome.runtime.sendMessage({
+				type: "GET_STATUS",
+			});
 
-  switchTab(tabName) {
-    // Hide all tab contents
-    document.querySelectorAll('.tab-content').forEach(content => {
-      content.classList.remove('active');
-    });
-    
-    // Remove active class from all tabs
-    document.querySelectorAll('.tab-link').forEach(tab => {
-      tab.classList.remove('active');
-    });
-    
-    // Show target tab content
-    const targetContent = document.getElementById(tabName);
-    if (targetContent) {
-      targetContent.classList.add('active');
-    }
-    
-    // Add active class to clicked tab
-    const targetTab = document.querySelector(`[data-tab="${tabName}"]`);
-    if (targetTab) {
-      targetTab.classList.add('active');
-    }
-  }
+			// Toggle the service
+			const newEnabled = !currentStatus.enabled;
+			const response = await chrome.runtime.sendMessage({
+				type: "SET_ENABLED",
+				enabled: newEnabled,
+			});
 
-  startStatusUpdates() {
-    // Update status every 5 seconds (less frequent to avoid interrupting user)
-    setInterval(() => {
-      this.updateStatus();
-      // Only update logs if user is not actively viewing them
-      if (document.querySelector('.tab-link[data-tab="call-logs"]').classList.contains('active')) {
-        // Don't auto-refresh logs when user is viewing them
-        return;
-      }
-      this.updateConsolePreview();
-    }, 5000);
-  }
+			console.log("Service toggle response:", response);
 
-  async updateStatus() {
-    try {
-      // Check if background script is responsive
-      const response = await chrome.runtime.sendMessage({ type: 'GET_STATUS' });
-      
-      if (response) {
-        let statusMessage;
-        if (response.connected) {
-          // Get available tabs count for a more useful display
-          try {
-            const tabs = await chrome.tabs.query({});
-            const availableTabs = tabs.filter(tab => !tab.url.startsWith('chrome://')).length;
-            statusMessage = `Connected - ${availableTabs} available tabs`;
-          } catch (error) {
-            // Fallback if we can't access tabs
-            const controlledCount = response.controlledTabs || 0;
-            statusMessage = `Connected - ${controlledCount} controlled tabs`;
-          }
-        } else {
-          const attempts = response.reconnectAttempts || 0;
-          statusMessage = `Disconnected - Attempting to reconnect (${attempts} attempts)`;
-        }
-        
-        this.setStatus(response.connected, statusMessage);
-        
-        // Update additional status info
-        this.updateConnectionDetails(response);
-      } else {
-        this.setStatus(false, 'Background script not responding');
-      }
-    } catch (error) {
-      this.setStatus(false, 'Background script not responding');
-    }
-  }
+			// Update UI immediately
+			await this.updateStatus();
+		} catch (error) {
+			console.error("Error toggling service:", error);
+		}
+	}
 
-  setStatus(active, message) {
-    const statusElement = document.getElementById('connection-status');
-    const textElement = document.getElementById('connection-text');
-    
-    if (statusElement && textElement) {
-      statusElement.className = active ? 'status-banner' : 'status-banner inactive';
-      textElement.textContent = message;
-    }
-  }
-  
-  updateConnectionDetails(status) {
-    // Update stats
-    const totalCallsElement = document.getElementById('total-calls');
-    if (totalCallsElement) {
-      totalCallsElement.textContent = status.totalLogs || 0;
-    }
-    
-    const activeSessionsElement = document.getElementById('active-sessions');
-    if (activeSessionsElement) {
-      // Get server status to show actual connected clients
-      this.getServerStatus().then(serverStatus => {
-        if (serverStatus && serverStatus.connected_clients) {
-          activeSessionsElement.textContent = serverStatus.connected_clients.total_active_sessions || 0;
-        } else {
-          activeSessionsElement.textContent = status.activeSessions || 0;
-        }
-      }).catch(() => {
-        activeSessionsElement.textContent = status.activeSessions || 0;
-      });
-    }
-    
-    // Update debugger status
-    const debuggerStatusElement = document.getElementById('debugger-status');
-    if (debuggerStatusElement) {
-      debuggerStatusElement.textContent = status.debuggerAttached ? 'Yes' : 'No';
-    }
-    
-    const controlledTabsElement = document.getElementById('controlled-tabs');
-    if (controlledTabsElement) {
-      // Show available tabs instead of controlled tabs for better UX
-      chrome.tabs.query({}).then(tabs => {
-        const availableTabs = tabs.filter(tab => !tab.url.startsWith('chrome://')).length;
-        controlledTabsElement.textContent = availableTabs;
-      }).catch(() => {
-        controlledTabsElement.textContent = status.controlledTabs || 0;
-      });
-    }
-    
-    const browserControlStatusElement = document.getElementById('browser-control-status');
-    if (browserControlStatusElement) {
-      browserControlStatusElement.textContent = status.connected ? 'Active' : 'Inactive';
-    }
-    
-    // Update service status
-    const serviceStatusElement = document.getElementById('service-status');
-    if (serviceStatusElement) {
-      serviceStatusElement.textContent = status.enabled ? 'Enabled' : 'Disabled';
-    }
-    
-    const serviceTextElement = document.getElementById('service-text');
-    if (serviceTextElement) {
-      serviceTextElement.textContent = status.enabled ? 'Enabled' : 'Disabled';
-    }
+	switchTab(tabName) {
+		// Hide all tab contents
+		for (const content of document.querySelectorAll(".tab-content")) {
+			content.classList.remove("active");
+		}
 
-    // Update toggle switch visual state
-    const serviceToggle = document.getElementById('service-toggle');
-    if (serviceToggle) {
-      if (status.enabled) {
-        serviceToggle.classList.add('active');
-      } else {
-        serviceToggle.classList.remove('active');
-      }
-    }
-    
-    // Update connection method statuses
-    const nativeStatusElement = document.getElementById('native-status');
-    if (nativeStatusElement) {
-      nativeStatusElement.textContent = status.connected ? '✅ Connected' : '❌ Disconnected';
-    }
-    
-    const cdpStatusElement = document.getElementById('cdp-status');
-    if (cdpStatusElement) {
-      cdpStatusElement.textContent = status.connected ? '✅ Available' : '❌ Unavailable';
-    }
-    
-    const settingsDebuggerStatusElement = document.getElementById('settings-debugger-status');
-    if (settingsDebuggerStatusElement) {
-      settingsDebuggerStatusElement.textContent = status.debuggerAttached ? '✅ Attached' : '❌ Not Attached';
-    }
-    
-    const logCountElement = document.getElementById('log-count');
-    if (logCountElement) {
-      logCountElement.textContent = status.totalLogs || 0;
-    }
-  }
+		// Remove active class from all tabs
+		for (const tab of document.querySelectorAll(".tab-link")) {
+			tab.classList.remove("active");
+		}
 
-  async updateActiveTab() {
-    try {
-      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (activeTab) {
-        const url = new URL(activeTab.url);
-        const displayUrl = url.hostname + (url.pathname !== '/' ? url.pathname : '');
-        document.getElementById('active-tab').textContent = displayUrl;
-      }
-    } catch (error) {
-      document.getElementById('active-tab').textContent = 'Error loading tab info';
-    }
-  }
+		// Show target tab content
+		const targetContent = document.getElementById(tabName);
+		if (targetContent) {
+			targetContent.classList.add("active");
+		}
 
-  async getServerStatus() {
-    try {
-      // Use existing background script connection to get server status
-      const response = await chrome.runtime.sendMessage({ 
-        type: 'GET_SERVER_STATUS'
-      });
-      
-      if (response && response.success) {
-        return response.result;
-      } else {
-        throw new Error(response?.error || 'Server status request failed');
-      }
-    } catch (error) {
-      console.error('Error getting server status:', error);
-      throw error;
-    }
-  }
+		// Add active class to clicked tab
+		const targetTab = document.querySelector(`[data-tab="${tabName}"]`);
+		if (targetTab) {
+			targetTab.classList.add("active");
+		}
+	}
 
-  async updateConsolePreview() {
-    try {
-      // Get call logs from background script
-      const response = await chrome.runtime.sendMessage({ type: 'GET_LOGS', limit: 20 });
-      
-      if (response && response.logs) {
-        this.displayConsoleLogs(response.logs);
-      } else {
-        this.displayConsoleLogs([]);
-      }
-    } catch (error) {
-      console.error('Error getting logs:', error);
-      this.displayConsoleLogs([]);
-    }
-  }
+	startStatusUpdates() {
+		// Update status every 5 seconds (less frequent to avoid interrupting user)
+		setInterval(() => {
+			this.updateStatus();
+			// Only update logs if user is not actively viewing them
+			if (
+				document
+					.querySelector('.tab-link[data-tab="call-logs"]')
+					.classList.contains("active")
+			) {
+				// Don't auto-refresh logs when user is viewing them
+				return;
+			}
+			this.updateConsolePreview();
+		}, 5000);
+	}
 
-  displayConsoleLogs(logs) {
-    const logsContainer = document.getElementById('logs-container');
-    
-    if (!logsContainer) {
-      console.warn('logs-container element not found');
-      return;
-    }
-    
-    if (logs.length === 0) {
-      logsContainer.innerHTML = '<div class="empty-logs">No call logs yet. Make some API calls to see them here.</div>';
-      return;
-    }
+	async updateStatus() {
+		try {
+			// Check if background script is responsive
+			const response = await chrome.runtime.sendMessage({ type: "GET_STATUS" });
 
-    const entries = logs.slice(-10).map((log, index) => {
-      const time = new Date(log.timestamp || Date.now()).toLocaleTimeString();
-      const status = log.error ? 'error' : 'success';
-      const statusText = log.error ? 'Error' : 'Success';
-      const checkIcon = `<svg class="icon-check-small" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+			if (response) {
+				let statusMessage;
+				if (response.connected) {
+					// Get available tabs count for a more useful display
+					try {
+						const tabs = await chrome.tabs.query({});
+						const availableTabs = tabs.filter(
+							(tab) => !tab.url.startsWith("chrome://"),
+						).length;
+						statusMessage = `Connected - ${availableTabs} available tabs`;
+					} catch (error) {
+						// Fallback if we can't access tabs
+						const controlledCount = response.controlledTabs || 0;
+						statusMessage = `Connected - ${controlledCount} controlled tabs`;
+					}
+				} else {
+					const attempts = response.reconnectAttempts || 0;
+					statusMessage = `Disconnected - Attempting to reconnect (${attempts} attempts)`;
+				}
+
+				this.setStatus(response.connected, statusMessage);
+
+				// Update additional status info
+				this.updateConnectionDetails(response);
+			} else {
+				this.setStatus(false, "Background script not responding");
+			}
+		} catch (error) {
+			this.setStatus(false, "Background script not responding");
+		}
+	}
+
+	setStatus(active, message) {
+		const statusElement = document.getElementById("connection-status");
+		const textElement = document.getElementById("connection-text");
+
+		if (statusElement && textElement) {
+			statusElement.className = active
+				? "status-banner"
+				: "status-banner inactive";
+			textElement.textContent = message;
+		}
+	}
+
+	updateConnectionDetails(status) {
+		// Update stats
+		const totalCallsElement = document.getElementById("total-calls");
+		if (totalCallsElement) {
+			totalCallsElement.textContent = status.totalLogs || 0;
+		}
+
+		const activeSessionsElement = document.getElementById("active-sessions");
+		if (activeSessionsElement) {
+			// Get server status to show actual connected clients
+			this.getServerStatus()
+				.then((serverStatus) => {
+					if (serverStatus?.connected_clients) {
+						activeSessionsElement.textContent =
+							serverStatus.connected_clients.total_active_sessions || 0;
+					} else {
+						activeSessionsElement.textContent = status.activeSessions || 0;
+					}
+				})
+				.catch(() => {
+					activeSessionsElement.textContent = status.activeSessions || 0;
+				});
+		}
+
+		// Update debugger status
+		const debuggerStatusElement = document.getElementById("debugger-status");
+		if (debuggerStatusElement) {
+			debuggerStatusElement.textContent = status.debuggerAttached
+				? "Yes"
+				: "No";
+		}
+
+		const controlledTabsElement = document.getElementById("controlled-tabs");
+		if (controlledTabsElement) {
+			// Show available tabs instead of controlled tabs for better UX
+			chrome.tabs
+				.query({})
+				.then((tabs) => {
+					const availableTabs = tabs.filter(
+						(tab) => !tab.url.startsWith("chrome://"),
+					).length;
+					controlledTabsElement.textContent = availableTabs;
+				})
+				.catch(() => {
+					controlledTabsElement.textContent = status.controlledTabs || 0;
+				});
+		}
+
+		const browserControlStatusElement = document.getElementById(
+			"browser-control-status",
+		);
+		if (browserControlStatusElement) {
+			browserControlStatusElement.textContent = status.connected
+				? "Active"
+				: "Inactive";
+		}
+
+		// Update service status
+		const serviceStatusElement = document.getElementById("service-status");
+		if (serviceStatusElement) {
+			serviceStatusElement.textContent = status.enabled
+				? "Enabled"
+				: "Disabled";
+		}
+
+		const serviceTextElement = document.getElementById("service-text");
+		if (serviceTextElement) {
+			serviceTextElement.textContent = status.enabled ? "Enabled" : "Disabled";
+		}
+
+		// Update toggle switch visual state
+		const serviceToggle = document.getElementById("service-toggle");
+		if (serviceToggle) {
+			if (status.enabled) {
+				serviceToggle.classList.add("active");
+			} else {
+				serviceToggle.classList.remove("active");
+			}
+		}
+
+		// Update connection method statuses
+		const nativeStatusElement = document.getElementById("native-status");
+		if (nativeStatusElement) {
+			nativeStatusElement.textContent = status.connected
+				? "✅ Connected"
+				: "❌ Disconnected";
+		}
+
+		const cdpStatusElement = document.getElementById("cdp-status");
+		if (cdpStatusElement) {
+			cdpStatusElement.textContent = status.connected
+				? "✅ Available"
+				: "❌ Unavailable";
+		}
+
+		const settingsDebuggerStatusElement = document.getElementById(
+			"settings-debugger-status",
+		);
+		if (settingsDebuggerStatusElement) {
+			settingsDebuggerStatusElement.textContent = status.debuggerAttached
+				? "✅ Attached"
+				: "❌ Not Attached";
+		}
+
+		const logCountElement = document.getElementById("log-count");
+		if (logCountElement) {
+			logCountElement.textContent = status.totalLogs || 0;
+		}
+	}
+
+	async updateActiveTab() {
+		try {
+			const [activeTab] = await chrome.tabs.query({
+				active: true,
+				currentWindow: true,
+			});
+			if (activeTab) {
+				const url = new URL(activeTab.url);
+				const displayUrl =
+					url.hostname + (url.pathname !== "/" ? url.pathname : "");
+				document.getElementById("active-tab").textContent = displayUrl;
+			}
+		} catch (error) {
+			document.getElementById("active-tab").textContent =
+				"Error loading tab info";
+		}
+	}
+
+	async getServerStatus() {
+		try {
+			// Use existing background script connection to get server status
+			const response = await chrome.runtime.sendMessage({
+				type: "GET_SERVER_STATUS",
+			});
+
+			if (response?.success) {
+				return response.result;
+			}
+			throw new Error(response?.error || "Server status request failed");
+		} catch (error) {
+			console.error("Error getting server status:", error);
+			throw error;
+		}
+	}
+
+	async updateConsolePreview() {
+		try {
+			// Get call logs from background script
+			const response = await chrome.runtime.sendMessage({
+				type: "GET_LOGS",
+				limit: 20,
+			});
+
+			if (response?.logs) {
+				this.displayConsoleLogs(response.logs);
+			} else {
+				this.displayConsoleLogs([]);
+			}
+		} catch (error) {
+			console.error("Error getting logs:", error);
+			this.displayConsoleLogs([]);
+		}
+	}
+
+	displayConsoleLogs(logs) {
+		const logsContainer = document.getElementById("logs-container");
+
+		if (!logsContainer) {
+			console.warn("logs-container element not found");
+			return;
+		}
+
+		if (logs.length === 0) {
+			logsContainer.innerHTML =
+				'<div class="empty-logs">No call logs yet. Make some API calls to see them here.</div>';
+			return;
+		}
+
+		const entries = logs
+			.slice(-10)
+			.map((log, index) => {
+				const time = new Date(log.timestamp || Date.now()).toLocaleTimeString();
+				const status = log.error ? "error" : "success";
+				const statusText = log.error ? "Error" : "Success";
+				const checkIcon = `<svg class="icon-check-small" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
       </svg>`;
-      
-      return `<div class="log-item ${status}" data-log-index="${index}" data-log-id="${log.id || index}">
+
+				return `<div class="log-item ${status}" data-log-index="${index}" data-log-id="${log.id || index}">
         <div class="checkbox-container">
           <div class="custom-checkbox">
             ${checkIcon}
           </div>
         </div>
-        <span class="type">${log.method || 'Unknown'}</span>
+        <span class="type">${log.method || "Unknown"}</span>
         <span class="status">${statusText}</span>
-        <span class="badge">${log.type || 'BROP'}</span>
+        <span class="badge">${log.type || "BROP"}</span>
         <span class="time">${time}</span>
       </div>`;
-    }).join('');
-    
-    // Remember current scroll position
-    const currentScrollTop = logsContainer.scrollTop;
-    const wasAtBottom = logsContainer.scrollTop >= (logsContainer.scrollHeight - logsContainer.clientHeight - 5);
-    
-    logsContainer.innerHTML = entries;
-    
-    // Add click event listeners to log entries
-    logsContainer.querySelectorAll('.log-item').forEach((entry, index) => {
-      entry.addEventListener('click', () => {
-        const logData = logs[logs.length - 10 + index]; // Get the actual log data
-        this.openLogDetailView(logData);
-      });
-    });
-    
-    // Only auto-scroll to bottom if user was already at the bottom
-    if (wasAtBottom) {
-      logsContainer.scrollTop = logsContainer.scrollHeight;
-    } else {
-      // Try to maintain the scroll position, or close to it
-      logsContainer.scrollTop = currentScrollTop;
-    }
-  }
+			})
+			.join("");
 
-  openLogDetailView(logData) {
-    // Create a new window to show detailed log information
-    const detailWindow = window.open('', '_blank', 'width=800,height=600,scrollbars=yes,resizable=yes');
-    
-    if (!detailWindow) {
-      // Fallback: log to console if popup blocking
-      console.log('Detailed log data:', logData);
-      alert('Log details logged to console (F12)');
-      return;
-    }
+		// Remember current scroll position
+		const currentScrollTop = logsContainer.scrollTop;
+		const wasAtBottom =
+			logsContainer.scrollTop >=
+			logsContainer.scrollHeight - logsContainer.clientHeight - 5;
 
-    const timestamp = new Date(logData.timestamp || Date.now()).toLocaleString();
-    const duration = logData.duration ? `${logData.duration}ms` : 'N/A';
-    const status = logData.error ? 'ERROR' : 'SUCCESS';
-    
-    detailWindow.document.write(`
+		logsContainer.innerHTML = entries;
+
+		// Add click event listeners to log entries
+		const logItems = logsContainer.querySelectorAll(".log-item");
+		for (let index = 0; index < logItems.length; index++) {
+			const entry = logItems[index];
+			entry.addEventListener("click", () => {
+				const logData = logs[logs.length - 10 + index]; // Get the actual log data
+				this.openLogDetailView(logData);
+			});
+		}
+
+		// Only auto-scroll to bottom if user was already at the bottom
+		if (wasAtBottom) {
+			logsContainer.scrollTop = logsContainer.scrollHeight;
+		} else {
+			// Try to maintain the scroll position, or close to it
+			logsContainer.scrollTop = currentScrollTop;
+		}
+	}
+
+	openLogDetailView(logData) {
+		// Create a new window to show detailed log information
+		const detailWindow = window.open(
+			"",
+			"_blank",
+			"width=800,height=600,scrollbars=yes,resizable=yes",
+		);
+
+		if (!detailWindow) {
+			// Fallback: log to console if popup blocking
+			console.log("Detailed log data:", logData);
+			alert("Log details logged to console (F12)");
+			return;
+		}
+
+		const timestamp = new Date(
+			logData.timestamp || Date.now(),
+		).toLocaleString();
+		const duration = logData.duration ? `${logData.duration}ms` : "N/A";
+		const status = logData.error ? "ERROR" : "SUCCESS";
+
+		detailWindow.document.write(`
       <!DOCTYPE html>
       <html>
       <head>
-        <title>BROP Log Details - ${logData.method || 'Unknown'}</title>
+        <title>BROP Log Details - ${logData.method || "Unknown"}</title>
         <style>
           body { 
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
@@ -457,18 +511,18 @@ class BROPPopup {
       </head>
       <body>
         <div class="header">
-          <h1>${logData.method || 'Unknown Method'}</h1>
-          <span class="status ${logData.error ? 'error' : 'success'}">${status}</span>
+          <h1>${logData.method || "Unknown Method"}</h1>
+          <span class="status ${logData.error ? "error" : "success"}">${status}</span>
         </div>
 
         <div class="section">
           <h2>Request Information</h2>
           <div class="info-grid">
             <div class="info-label">Method:</div>
-            <div class="info-value">${logData.method || 'N/A'}</div>
+            <div class="info-value">${logData.method || "N/A"}</div>
             
             <div class="info-label">Type:</div>
-            <div class="info-value">${logData.type || 'N/A'}</div>
+            <div class="info-value">${logData.type || "N/A"}</div>
             
             <div class="info-label">Timestamp:</div>
             <div class="info-value">${timestamp}</div>
@@ -477,30 +531,42 @@ class BROPPopup {
             <div class="info-value">${duration}</div>
             
             <div class="info-label">Success:</div>
-            <div class="info-value">${logData.success !== undefined ? logData.success : 'N/A'}</div>
+            <div class="info-value">${logData.success !== undefined ? logData.success : "N/A"}</div>
           </div>
         </div>
 
-        ${logData.params ? `
+        ${
+					logData.params
+						? `
         <div class="section">
           <h2>Parameters</h2>
           <pre>${JSON.stringify(logData.params, null, 2)}</pre>
         </div>
-        ` : ''}
+        `
+						: ""
+				}
 
-        ${logData.result ? `
+        ${
+					logData.result
+						? `
         <div class="section">
           <h2>Result</h2>
           <pre>${JSON.stringify(logData.result, null, 2)}</pre>
         </div>
-        ` : ''}
+        `
+						: ""
+				}
 
-        ${logData.error ? `
+        ${
+					logData.error
+						? `
         <div class="section">
           <h2>Error Details</h2>
           <pre class="error-pre">${logData.error}</pre>
         </div>
-        ` : ''}
+        `
+						: ""
+				}
 
         <div class="section">
           <h2>Raw Log Data</h2>
@@ -509,31 +575,38 @@ class BROPPopup {
       </body>
       </html>
     `);
-    
-    detailWindow.document.close();
-    
-    // Focus the window without inline scripts
-    setTimeout(() => {
-      detailWindow.focus();
-    }, 50);
-  }
 
-  async openFullScreenLogs() {
-    try {
-      // Get all logs from background script
-      const response = await chrome.runtime.sendMessage({ type: 'GET_LOGS', limit: 1000 });
-      const logs = response?.logs || [];
+		detailWindow.document.close();
 
-      // Create a full-screen log viewer window using the new design
-      const fullScreenWindow = window.open('', '_blank', 'width=1200,height=800,scrollbars=yes,resizable=yes');
-      
-      if (!fullScreenWindow) {
-        alert('Please allow popups to view full-screen logs');
-        return;
-      }
+		// Focus the window without inline scripts
+		setTimeout(() => {
+			detailWindow.focus();
+		}, 50);
+	}
 
-      // Use the beautiful design from design/logs.html
-      fullScreenWindow.document.write(`
+	async openFullScreenLogs() {
+		try {
+			// Get all logs from background script
+			const response = await chrome.runtime.sendMessage({
+				type: "GET_LOGS",
+				limit: 1000,
+			});
+			const logs = response?.logs || [];
+
+			// Create a full-screen log viewer window using the new design
+			const fullScreenWindow = window.open(
+				"",
+				"_blank",
+				"width=1200,height=800,scrollbars=yes,resizable=yes",
+			);
+
+			if (!fullScreenWindow) {
+				alert("Please allow popups to view full-screen logs");
+				return;
+			}
+
+			// Use the beautiful design from design/logs.html
+			fullScreenWindow.document.write(`
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -896,40 +969,42 @@ class BROPPopup {
         </html>
       `);
 
-      fullScreenWindow.document.close();
-      
-      // Add functionality after document is ready
-      setTimeout(() => {
-        this.setupFullScreenLogsInteractivity(fullScreenWindow, logs);
-        fullScreenWindow.focus();
-      }, 100);
-      
-    } catch (error) {
-      console.error('Error opening full-screen logs:', error);
-      alert('Error opening full-screen logs. Check console for details.');
-    }
-  }
+			fullScreenWindow.document.close();
 
-  generateModernLogEntries(logs) {
-    if (logs.length === 0) {
-      return '<div class="empty-logs">No call logs yet. Make some API calls to see them here.</div>';
-    }
+			// Add functionality after document is ready
+			setTimeout(() => {
+				this.setupFullScreenLogsInteractivity(fullScreenWindow, logs);
+				fullScreenWindow.focus();
+			}, 100);
+		} catch (error) {
+			console.error("Error opening full-screen logs:", error);
+			alert("Error opening full-screen logs. Check console for details.");
+		}
+	}
 
-    return logs.map((log, index) => {
-      const time = new Date(log.timestamp || Date.now()).toLocaleString();
-      const status = log.error ? 'error' : 'success';
-      const statusIcon = log.error ? 
-        '<svg class="status-icon status-error" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>' :
-        '<svg class="status-icon status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
-      
-      const method = this.escapeHtml(log.method || 'Unknown');
-      const type = this.escapeHtml(log.type || 'BROP');
-      
-      // Generate content sections
-      const requestDetails = this.generateLogDetails(log);
-      const errorMessage = log.error ? `<div class="error-message">Error: ${this.escapeHtml(String(log.error))}</div>` : '';
-      
-      return `
+	generateModernLogEntries(logs) {
+		if (logs.length === 0) {
+			return '<div class="empty-logs">No call logs yet. Make some API calls to see them here.</div>';
+		}
+
+		return logs
+			.map((log, index) => {
+				const time = new Date(log.timestamp || Date.now()).toLocaleString();
+				const status = log.error ? "error" : "success";
+				const statusIcon = log.error
+					? '<svg class="status-icon status-error" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>'
+					: '<svg class="status-icon status-success" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
+
+				const method = this.escapeHtml(log.method || "Unknown");
+				const type = this.escapeHtml(log.type || "BROP");
+
+				// Generate content sections
+				const requestDetails = this.generateLogDetails(log);
+				const errorMessage = log.error
+					? `<div class="error-message">Error: ${this.escapeHtml(String(log.error))}</div>`
+					: "";
+
+				return `
         <div class="log-entry ${status}" data-index="${index}">
           <div class="log-header" data-index="${index}">
             <div class="log-method">
@@ -951,322 +1026,336 @@ class BROPPopup {
           </div>
         </div>
       `;
-    }).join('');
-  }
+			})
+			.join("");
+	}
 
-  generateLogDetails(log) {
-    const details = [];
-    
-    details.push(`Method: ${log.method || 'N/A'}`);
-    details.push(`Type: ${log.type || 'N/A'}`);
-    details.push(`Timestamp: ${new Date(log.timestamp || Date.now()).toLocaleString()}`);
-    details.push(`Duration: ${log.duration ? log.duration + 'ms' : 'N/A'}`);
-    details.push(`Success: ${log.success !== undefined ? log.success : (log.error ? 'false' : 'true')}`);
-    
-    if (log.params) {
-      try {
-        const paramsText = typeof log.params === 'string' ? 
-          JSON.stringify(JSON.parse(log.params), null, 2) : 
-          JSON.stringify(log.params, null, 2);
-        details.push(`\nParameters:\n${this.truncateValue(paramsText)}`);
-      } catch (e) {
-        details.push(`\nParameters: ${this.truncateValue(String(log.params))}`);
-      }
-    }
-    
-    if (log.result) {
-      try {
-        const resultText = typeof log.result === 'string' ? 
-          JSON.stringify(JSON.parse(log.result), null, 2) : 
-          JSON.stringify(log.result, null, 2);
-        details.push(`\nResult:\n${this.truncateValue(resultText)}`);
-      } catch (e) {
-        details.push(`\nResult: ${this.truncateValue(String(log.result))}`);
-      }
-    }
-    
-    if (log.error) {
-      details.push(`\nError Details:\n${this.truncateValue(String(log.error))}`);
-    }
-    
-    return this.escapeHtml(details.join('\n'));
-  }
+	generateLogDetails(log) {
+		const details = [];
 
-  truncateValue(value, maxLength = 2000) {
-    if (!value || typeof value !== 'string') {
-      return value;
-    }
-    
-    if (value.length <= maxLength) {
-      return value;
-    }
-    
-    // For very long values (like screenshots, page content), show start and end
-    const truncated = value.substring(0, maxLength);
-    const remaining = value.length - maxLength;
-    const lines = value.split('\n').length;
-    
-    return `${truncated}\n\n... [TRUNCATED: ${remaining} more characters, ${lines} total lines] ...\n\nLast 200 chars:\n${value.substring(value.length - 200)}`;
-  }
+		details.push(`Method: ${log.method || "N/A"}`);
+		details.push(`Type: ${log.type || "N/A"}`);
+		details.push(
+			`Timestamp: ${new Date(log.timestamp || Date.now()).toLocaleString()}`,
+		);
+		details.push(`Duration: ${log.duration ? `${log.duration}ms` : "N/A"}`);
+		details.push(
+			`Success: ${log.success !== undefined ? log.success : log.error ? "false" : "true"}`,
+		);
 
-  setupFullScreenLogsInteractivity(window, logs) {
-    // Add print functionality
-    const printBtn = window.document.getElementById('print-btn');
-    if (printBtn) {
-      printBtn.addEventListener('click', () => {
-        window.print();
-      });
-    }
-    
-    // Add close functionality
-    const closeBtn = window.document.getElementById('close-btn');
-    if (closeBtn) {
-      closeBtn.addEventListener('click', () => {
-        window.close();
-      });
-    }
-    
-    // Add click event listeners to log headers (CSP-compliant)
-    window.document.querySelectorAll('.log-header').forEach(header => {
-      header.addEventListener('click', function() {
-        const index = this.getAttribute('data-index');
-        const content = window.document.getElementById('content-' + index);
-        const isExpanded = content.classList.contains('expanded');
-        
-        // Close all other expanded entries
-        window.document.querySelectorAll('.log-content.expanded').forEach(openContent => {
-          if (openContent !== content) {
-            openContent.classList.remove('expanded');
-          }
-        });
-        
-        // Toggle current entry
-        if (isExpanded) {
-          content.classList.remove('expanded');
-        } else {
-          content.classList.add('expanded');
-        }
-      });
-    });
-    
-    // Keyboard navigation
-    window.document.addEventListener('keydown', function(event) {
-      if (event.key === 'Escape') {
-        // Close all expanded entries
-        window.document.querySelectorAll('.log-content.expanded').forEach(content => {
-          content.classList.remove('expanded');
-        });
-      }
-    });
-    
-    // Print functionality - expand all for printing
-    window.addEventListener('beforeprint', function() {
-      window.document.querySelectorAll('.log-content').forEach(content => {
-        content.style.display = 'block';
-      });
-    });
-    
-    window.addEventListener('afterprint', function() {
-      window.document.querySelectorAll('.log-content').forEach(content => {
-        if (!content.classList.contains('expanded')) {
-          content.style.display = 'none';
-        }
-      });
-    });
-  }
+		if (log.params) {
+			try {
+				const paramsText =
+					typeof log.params === "string"
+						? JSON.stringify(JSON.parse(log.params), null, 2)
+						: JSON.stringify(log.params, null, 2);
+				details.push(`\nParameters:\n${this.truncateValue(paramsText)}`);
+			} catch (e) {
+				details.push(`\nParameters: ${this.truncateValue(String(log.params))}`);
+			}
+		}
 
-  generateSimpleLogEntriesNoInline(logs) {
-    if (logs.length === 0) {
-      return '<div class="empty-logs">No call logs yet. Make some API calls to see them here.</div>';
-    }
+		if (log.result) {
+			try {
+				const resultText =
+					typeof log.result === "string"
+						? JSON.stringify(JSON.parse(log.result), null, 2)
+						: JSON.stringify(log.result, null, 2);
+				details.push(`\nResult:\n${this.truncateValue(resultText)}`);
+			} catch (e) {
+				details.push(`\nResult: ${this.truncateValue(String(log.result))}`);
+			}
+		}
 
-    return logs.map((log, index) => {
-      const time = new Date(log.timestamp || Date.now()).toLocaleString();
-      const duration = log.duration ? `${log.duration}ms` : '';
-      const status = log.error ? 'error' : 'success';
-      const statusIcon = log.error ? '❌' : '✅';
-      const method = this.escapeHtml(log.method || 'Unknown');
-      const type = this.escapeHtml(log.type || 'BROP');
-      
-      // Safely handle error preview with proper escaping
-      let errorPreview = '';
-      if (log.error) {
-        const errorText = String(log.error).substring(0, 100);
-        errorPreview = this.escapeHtml(errorText) + (log.error.length > 100 ? '...' : '');
-      }
-      
-      // Generate full details sections
-      const fullDetails = this.generateLogFullDetails(log);
-      
-      return `
+		if (log.error) {
+			details.push(
+				`\nError Details:\n${this.truncateValue(String(log.error))}`,
+			);
+		}
+
+		return this.escapeHtml(details.join("\n"));
+	}
+
+	truncateValue(value, maxLength = 2000) {
+		if (!value || typeof value !== "string") {
+			return value;
+		}
+
+		if (value.length <= maxLength) {
+			return value;
+		}
+
+		// For very long values (like screenshots, page content), show start and end
+		const truncated = value.substring(0, maxLength);
+		const remaining = value.length - maxLength;
+		const lines = value.split("\n").length;
+
+		return `${truncated}\n\n... [TRUNCATED: ${remaining} more characters, ${lines} total lines] ...\n\nLast 200 chars:\n${value.substring(value.length - 200)}`;
+	}
+
+	setupFullScreenLogsInteractivity(window, logs) {
+		// Add print functionality
+		const printBtn = window.document.getElementById("print-btn");
+		if (printBtn) {
+			printBtn.addEventListener("click", () => {
+				window.print();
+			});
+		}
+
+		// Add close functionality
+		const closeBtn = window.document.getElementById("close-btn");
+		if (closeBtn) {
+			closeBtn.addEventListener("click", () => {
+				window.close();
+			});
+		}
+
+		// Add click event listeners to log headers (CSP-compliant)
+		for (const header of window.document.querySelectorAll(".log-header")) {
+			header.addEventListener("click", function () {
+				const index = this.getAttribute("data-index");
+				const content = window.document.getElementById(`content-${index}`);
+				const isExpanded = content.classList.contains("expanded");
+
+				// Close all other expanded entries
+				for (const openContent of window.document.querySelectorAll(
+					".log-content.expanded",
+				)) {
+					if (openContent !== content) {
+						openContent.classList.remove("expanded");
+					}
+				}
+
+				// Toggle current entry
+				if (isExpanded) {
+					content.classList.remove("expanded");
+				} else {
+					content.classList.add("expanded");
+				}
+			});
+		}
+
+		// Keyboard navigation
+		window.document.addEventListener("keydown", (event) => {
+			if (event.key === "Escape") {
+				// Close all expanded entries
+				for (const content of window.document.querySelectorAll(
+					".log-content.expanded",
+				)) {
+					content.classList.remove("expanded");
+				}
+			}
+		});
+
+		// Print functionality - expand all for printing
+		window.addEventListener("beforeprint", () => {
+			for (const content of window.document.querySelectorAll(".log-content")) {
+				content.style.display = "block";
+			}
+		});
+
+		window.addEventListener("afterprint", () => {
+			for (const content of window.document.querySelectorAll(".log-content")) {
+				if (!content.classList.contains("expanded")) {
+					content.style.display = "none";
+				}
+			}
+		});
+	}
+
+	generateSimpleLogEntriesNoInline(logs) {
+		if (logs.length === 0) {
+			return '<div class="empty-logs">No call logs yet. Make some API calls to see them here.</div>';
+		}
+
+		return logs
+			.map((log, index) => {
+				const time = new Date(log.timestamp || Date.now()).toLocaleString();
+				const duration = log.duration ? `${log.duration}ms` : "";
+				const status = log.error ? "error" : "success";
+				const statusIcon = log.error ? "❌" : "✅";
+				const method = this.escapeHtml(log.method || "Unknown");
+				const type = this.escapeHtml(log.type || "BROP");
+
+				// Safely handle error preview with proper escaping
+				let errorPreview = "";
+				if (log.error) {
+					const errorText = String(log.error).substring(0, 100);
+					errorPreview =
+						this.escapeHtml(errorText) + (log.error.length > 100 ? "..." : "");
+				}
+
+				// Generate full details sections
+				const fullDetails = this.generateLogFullDetails(log);
+
+				return `
         <div class="log-entry ${status}" data-index="${index}">
           <div class="log-header">
             <span class="log-method">${method}<span class="expand-indicator">(click to expand)</span></span>
             <div class="log-meta">
               <span class="log-type ${type}">${type}</span>
               <span class="log-time">${time}</span>
-              ${duration ? `<span class="log-duration">${duration}</span>` : ''}
+              ${duration ? `<span class="log-duration">${duration}</span>` : ""}
               <span class="log-status">${statusIcon}</span>
             </div>
           </div>
-          ${errorPreview ? `<div class="log-details">Error: ${errorPreview}</div>` : ''}
+          ${errorPreview ? `<div class="log-details">Error: ${errorPreview}</div>` : ""}
           <div class="log-full-details" id="details-${index}">
             ${fullDetails}
           </div>
         </div>
       `;
-    }).join('');
-  }
+			})
+			.join("");
+	}
 
-  generateSimpleLogEntries(logs) {
-    if (logs.length === 0) {
-      return '<div class="empty-logs">No call logs yet. Make some API calls to see them here.</div>';
-    }
+	generateSimpleLogEntries(logs) {
+		if (logs.length === 0) {
+			return '<div class="empty-logs">No call logs yet. Make some API calls to see them here.</div>';
+		}
 
-    return logs.map((log, index) => {
-      const time = new Date(log.timestamp || Date.now()).toLocaleString();
-      const duration = log.duration ? `${log.duration}ms` : '';
-      const status = log.error ? 'error' : 'success';
-      const statusIcon = log.error ? '❌' : '✅';
-      const method = this.escapeHtml(log.method || 'Unknown');
-      const type = this.escapeHtml(log.type || 'BROP');
-      
-      // Safely handle error preview with proper escaping
-      let errorPreview = '';
-      if (log.error) {
-        const errorText = String(log.error).substring(0, 100);
-        errorPreview = this.escapeHtml(errorText) + (log.error.length > 100 ? '...' : '');
-      }
-      
-      return `
+		return logs
+			.map((log, index) => {
+				const time = new Date(log.timestamp || Date.now()).toLocaleString();
+				const duration = log.duration ? `${log.duration}ms` : "";
+				const status = log.error ? "error" : "success";
+				const statusIcon = log.error ? "❌" : "✅";
+				const method = this.escapeHtml(log.method || "Unknown");
+				const type = this.escapeHtml(log.type || "BROP");
+
+				// Safely handle error preview with proper escaping
+				let errorPreview = "";
+				if (log.error) {
+					const errorText = String(log.error).substring(0, 100);
+					errorPreview =
+						this.escapeHtml(errorText) + (log.error.length > 100 ? "..." : "");
+				}
+
+				return `
         <div class="log-entry ${status}">
           <div class="log-header">
             <span class="log-method">${method}</span>
             <div class="log-meta">
               <span class="log-type ${type}">${type}</span>
               <span class="log-time">${time}</span>
-              ${duration ? `<span class="log-duration">${duration}</span>` : ''}
+              ${duration ? `<span class="log-duration">${duration}</span>` : ""}
               <span class="log-status">${statusIcon}</span>
             </div>
           </div>
-          ${errorPreview ? `<div class="log-details">Error: ${errorPreview}</div>` : ''}
+          ${errorPreview ? `<div class="log-details">Error: ${errorPreview}</div>` : ""}
         </div>
       `;
-    }).join('');
-  }
+			})
+			.join("");
+	}
 
-  generateLogFullDetails(log) {
-    const sections = [];
-    
-    // Basic Information
-    sections.push(`
+	generateLogFullDetails(log) {
+		const sections = [];
+
+		// Basic Information
+		sections.push(`
       <div class="detail-section">
         <div class="detail-label">Basic Information</div>
-        <div class="detail-content">Method: ${this.escapeHtml(log.method || 'N/A')}
-Type: ${this.escapeHtml(log.type || 'N/A')}
+        <div class="detail-content">Method: ${this.escapeHtml(log.method || "N/A")}
+Type: ${this.escapeHtml(log.type || "N/A")}
 Timestamp: ${new Date(log.timestamp || Date.now()).toLocaleString()}
-Duration: ${log.duration ? log.duration + 'ms' : 'N/A'}
-Success: ${log.success !== undefined ? log.success : (log.error ? 'false' : 'true')}
-ID: ${this.escapeHtml(log.id || 'N/A')}</div>
+Duration: ${log.duration ? `${log.duration}ms` : "N/A"}
+Success: ${log.success !== undefined ? log.success : log.error ? "false" : "true"}
+ID: ${this.escapeHtml(log.id || "N/A")}</div>
       </div>
     `);
-    
-    // Parameters
-    if (log.params) {
-      let paramsText;
-      try {
-        // Handle both string and object params
-        if (typeof log.params === 'string') {
-          const parsed = JSON.parse(log.params);
-          paramsText = JSON.stringify(parsed, null, 2);
-        } else {
-          paramsText = JSON.stringify(log.params, null, 2);
-        }
-      } catch (e) {
-        paramsText = String(log.params);
-      }
-      
-      sections.push(`
+
+		// Parameters
+		if (log.params) {
+			let paramsText;
+			try {
+				// Handle both string and object params
+				if (typeof log.params === "string") {
+					const parsed = JSON.parse(log.params);
+					paramsText = JSON.stringify(parsed, null, 2);
+				} else {
+					paramsText = JSON.stringify(log.params, null, 2);
+				}
+			} catch (e) {
+				paramsText = String(log.params);
+			}
+
+			sections.push(`
         <div class="detail-section">
           <div class="detail-label">Parameters</div>
           <div class="detail-content">${this.escapeHtml(paramsText)}</div>
         </div>
       `);
-    }
-    
-    // Result
-    if (log.result) {
-      let resultText;
-      try {
-        // Handle both string and object results
-        if (typeof log.result === 'string') {
-          const parsed = JSON.parse(log.result);
-          resultText = JSON.stringify(parsed, null, 2);
-        } else {
-          resultText = JSON.stringify(log.result, null, 2);
-        }
-      } catch (e) {
-        resultText = String(log.result);
-      }
-      
-      sections.push(`
+		}
+
+		// Result
+		if (log.result) {
+			let resultText;
+			try {
+				// Handle both string and object results
+				if (typeof log.result === "string") {
+					const parsed = JSON.parse(log.result);
+					resultText = JSON.stringify(parsed, null, 2);
+				} else {
+					resultText = JSON.stringify(log.result, null, 2);
+				}
+			} catch (e) {
+				resultText = String(log.result);
+			}
+
+			sections.push(`
         <div class="detail-section">
           <div class="detail-label">Result</div>
           <div class="detail-content">${this.escapeHtml(resultText)}</div>
         </div>
       `);
-    }
-    
-    // Error Details (full error, not truncated)
-    if (log.error) {
-      sections.push(`
+		}
+
+		// Error Details (full error, not truncated)
+		if (log.error) {
+			sections.push(`
         <div class="detail-section">
           <div class="detail-label">Error Details</div>
           <div class="detail-content">${this.escapeHtml(String(log.error))}</div>
         </div>
       `);
-    }
-    
-    // Raw Log Data
-    sections.push(`
+		}
+
+		// Raw Log Data
+		sections.push(`
       <div class="detail-section">
         <div class="detail-label">Raw Log Data</div>
         <div class="detail-content">${this.escapeHtml(JSON.stringify(log, null, 2))}</div>
       </div>
     `);
-    
-    return sections.join('');
-  }
 
-  escapeHtml(text) {
-    if (typeof text !== 'string') {
-      text = String(text);
-    }
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
+		return sections.join("");
+	}
 
+	escapeHtml(text) {
+		const textStr = typeof text !== "string" ? String(text) : text;
+		return textStr
+			.replace(/&/g, "&amp;")
+			.replace(/</g, "&lt;")
+			.replace(/>/g, "&gt;")
+			.replace(/"/g, "&quot;")
+			.replace(/'/g, "&#39;");
+	}
 
-
-  async clearConsoleLogs() {
-    try {
-      const response = await chrome.runtime.sendMessage({ type: 'CLEAR_LOGS' });
-      if (response && response.success) {
-        // Refresh the logs display
-        await this.updateConsolePreview();
-      }
-    } catch (error) {
-      console.error('Failed to clear logs:', error);
-    }
-  }
-
+	async clearConsoleLogs() {
+		try {
+			const response = await chrome.runtime.sendMessage({ type: "CLEAR_LOGS" });
+			if (response?.success) {
+				// Refresh the logs display
+				await this.updateConsolePreview();
+			}
+		} catch (error) {
+			console.error("Failed to clear logs:", error);
+		}
+	}
 }
 
 // Initialize popup when DOM is loaded
-document.addEventListener('DOMContentLoaded', () => {
-  new BROPPopup();
+document.addEventListener("DOMContentLoaded", () => {
+	new BROPPopup();
 });

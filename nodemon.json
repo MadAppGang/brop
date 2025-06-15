@@ -1,36 +1,36 @@
 {
-  "watch": [
-    "bridge/",
-    "background_bridge_client.js",
-    "content.js",
-    "manifest.json",
-    "popup_enhanced.js",
-    "popup.html"
-  ],
-  "ext": "js,json,html",
-  "ignore": [
-    "node_modules/",
-    "dist/",
-    "generated/",
-    "*.log",
-    "debug-*.js",
-    "get-*.js",
-    "test-*.js",
-    "bridge-auto-reload.js",
-    "start-dev.js"
-  ],
-  "exec": "node bridge/bridge_server.js",
-  "restartable": "rs",
-  "colours": true,
-  "legacyWatch": false,
-  "delay": 1000,
-  "events": {
-    "restart": "echo '🔄 Bridge server restarting due to file changes...'",
-    "start": "echo '🚀 Bridge server started with nodemon'",
-    "crash": "echo '💥 Bridge server crashed - will restart when files change'"
-  },
-  "env": {
-    "NODE_ENV": "development"
-  },
-  "verbose": true
+	"watch": [
+		"bridge/",
+		"background_bridge_client.js",
+		"content.js",
+		"manifest.json",
+		"popup_enhanced.js",
+		"popup.html"
+	],
+	"ext": "js,json,html",
+	"ignore": [
+		"node_modules/",
+		"dist/",
+		"generated/",
+		"*.log",
+		"debug-*.js",
+		"get-*.js",
+		"test-*.js",
+		"bridge-auto-reload.js",
+		"start-dev.js"
+	],
+	"exec": "node bridge/bridge_server.js",
+	"restartable": "rs",
+	"colours": true,
+	"legacyWatch": false,
+	"delay": 1000,
+	"events": {
+		"restart": "echo '🔄 Bridge server restarting due to file changes...'",
+		"start": "echo '🚀 Bridge server started with nodemon'",
+		"crash": "echo '💥 Bridge server crashed - will restart when files change'"
+	},
+	"env": {
+		"NODE_ENV": "development"
+	},
+	"verbose": true
 }

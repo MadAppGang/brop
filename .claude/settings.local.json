@@ -1,15 +1,15 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(find:*)",
-      "Bash(ls:*)",
-      "Bash(pnpm exec playwright:*)",
-      "Bash(pnpm run test:*)",
-      "Bash(ln:*)",
-      "Bash(pnpm run:*)",
-      "Bash(curl:*)",
-      "Bash(node:*)"
-    ],
-    "deny": []
-  }
+	"permissions": {
+		"allow": [
+			"Bash(find:*)",
+			"Bash(ls:*)",
+			"Bash(pnpm exec playwright:*)",
+			"Bash(pnpm run test:*)",
+			"Bash(ln:*)",
+			"Bash(pnpm run:*)",
+			"Bash(curl:*)",
+			"Bash(node:*)"
+		],
+		"deny": []
+	}
 }

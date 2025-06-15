@@ -1,0 +1,33 @@
+{
+	"$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
+	"files": {
+		"ignore": [
+			"node_modules/**",
+			"dist/**",
+			"build/**",
+			"*.min.js",
+			"readability.js",
+			"dom-to-semantic-markdown.js"
+		]
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"recommended": true,
+			"style": {
+				"noParameterAssign": "error"
+			},
+			"complexity": {
+				"noForEach": "error"
+			},
+			"suspicious": {
+				"noAssignInExpressions": "warn"
+			}
+		}
+	},
+	"formatter": {
+		"enabled": true,
+		"indentStyle": "tab",
+		"indentWidth": 2
+	}
+}

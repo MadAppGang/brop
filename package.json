@@ -1,32 +1,32 @@
 {
-  "name": "mcp-brop",
-  "version": "2.1.0",
-  "description": "Browser Remote Operations Protocol with multiplexed CDP relay support",
-  "type": "module",
-  "main": "background.js",
-  "scripts": {
-    "dev": "nodemon",
-    "bridge": "node bridge/bridge_server.js",
-    "mcp": "node bridge/mcp-server.js",
-    "pack:extension": "node pack-extension.js",
-    "pack:extension:clean": "node pack-extension.js --no-timestamp",
-    "test:cdp": "cd tests && ./run-tests.sh",
-    "test:quick": "cd tests && node quick-cdp-test.js",
-    "test:brop": "cd tests && node quick-brop-test.js",
-    "test:bridge": "cd tests && node unified-bridge-test.js"
-  },
-  "devDependencies": {
-    "@types/chrome": "^0.0.270",
-    "nodemon": "^3.0.2"
-  },
-  "dependencies": {
-    "@mozilla/readability": "^0.6.0",
-    "dom-to-semantic-markdown": "^1.5.0",
-    "playwright": "^1.53.0",
-    "ws": "^8.14.2"
-  },
-  "optionalDependencies": {
-    "google-protobuf": "^3.21.2",
-    "protobufjs": "^7.2.5"
-  }
+	"name": "mcp-brop",
+	"version": "2.1.0",
+	"description": "Browser Remote Operations Protocol with multiplexed CDP relay support",
+	"type": "module",
+	"main": "background.js",
+	"scripts": {
+		"dev": "nodemon",
+		"bridge": "node bridge/bridge_server.js",
+		"mcp": "node bridge/mcp-server.js",
+		"pack:extension": "node pack-extension.js",
+		"pack:extension:clean": "node pack-extension.js --no-timestamp",
+		"test:cdp": "cd tests && ./run-tests.sh",
+		"test:quick": "cd tests && node quick-cdp-test.js",
+		"test:brop": "cd tests && node quick-brop-test.js",
+		"test:bridge": "cd tests && node unified-bridge-test.js"
+	},
+	"devDependencies": {
+		"@types/chrome": "^0.0.270",
+		"nodemon": "^3.0.2"
+	},
+	"dependencies": {
+		"@mozilla/readability": "^0.6.0",
+		"dom-to-semantic-markdown": "^1.5.0",
+		"playwright": "^1.53.0",
+		"ws": "^8.14.2"
+	},
+	"optionalDependencies": {
+		"google-protobuf": "^3.21.2",
+		"protobufjs": "^7.2.5"
+	}
 }
