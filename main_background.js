@@ -31,6 +31,7 @@ class MainBackground {
     });
     
     this.setupErrorHandlers();
+    this.setupPopupMessageHandler();
     this.connectToBridge();
   }
 
@@ -60,6 +61,114 @@ class MainBackground {
         this.bropServer.logError('Unhandled Promise Rejection', event.reason?.message || String(event.reason), event.reason?.stack);
       }
     });
+  }
+
+  setupPopupMessageHandler() {
+    // Handle messages from popup and other extension components
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      console.log('📨 Popup message received:', message.type);
+      
+      const handleAsync = async () => {
+        try {
+          switch (message.type) {
+            case 'GET_STATUS':
+              return this.getStatus();
+              
+            case 'SET_ENABLED':
+              return await this.setEnabled(message.enabled);
+              
+            case 'GET_SERVER_STATUS':
+              return await this.getServerStatus();
+              
+            case 'GET_LOGS':
+              return this.getLogs(message.limit);
+              
+            case 'CLEAR_LOGS':
+              return await this.clearLogs();
+              
+            default:
+              throw new Error(`Unknown popup message type: ${message.type}`);
+          }
+        } catch (error) {
+          console.error(`Error handling popup message ${message.type}:`, error);
+          return {
+            success: false,
+            error: error.message
+          };
+        }
+      };
+      
+      // Handle async messages
+      handleAsync().then(response => {
+        sendResponse(response);
+      });
+      
+      return true; // Keep message channel open for async response
+    });
+  }
+
+  getStatus() {
+    return {
+      connected: this.isConnected,
+      enabled: this.enabled,
+      connectionStatus: this.connectionStatus,
+      reconnectAttempts: this.reconnectAttempts,
+      totalLogs: this.bropServer?.callLogs?.length || 0,
+      debuggerAttached: this.cdpServer?.isAttached || false,
+      activeSessions: this.isConnected ? 1 : 0,
+      controlledTabs: 0 // Will be populated from tab query if needed
+    };
+  }
+
+  async setEnabled(enabled) {
+    this.enabled = enabled;
+    if (this.bropServer) {
+      this.bropServer.enabled = enabled;
+      await this.bropServer.saveSettings();
+    }
+    
+    console.log(`🔧 BROP service ${enabled ? 'enabled' : 'disabled'}`);
+    
+    return {
+      success: true,
+      enabled: this.enabled,
+      message: `BROP service ${enabled ? 'enabled' : 'disabled'}`
+    };
+  }
+
+  async getServerStatus() {
+    // This should query the bridge server for its status
+    // For now, return extension status
+    return {
+      success: true,
+      result: {
+        connected_clients: {
+          total_active_sessions: this.isConnected ? 1 : 0
+        },
+        bridge_connected: this.isConnected,
+        extension_status: this.getStatus()
+      }
+    };
+  }
+
+  getLogs(limit = 100) {
+    const logs = this.bropServer?.callLogs || [];
+    return {
+      success: true,
+      logs: logs.slice(-limit)
+    };
+  }
+
+  async clearLogs() {
+    if (this.bropServer) {
+      this.bropServer.callLogs = [];
+      await this.bropServer.saveSettings();
+    }
+    
+    return {
+      success: true,
+      message: 'Logs cleared successfully'
+    };
   }
 
   logError(type, message, stack = null) {

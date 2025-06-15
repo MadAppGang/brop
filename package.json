@@ -5,9 +5,7 @@
   "main": "background.js",
   "scripts": {
     "dev": "nodemon",
-    "bridge": "node bridge/unified_bridge_server.js",
-    "bridge:original": "node bridge/bridge_server.js",
-    "bridge:multiplexed": "node bridge/bridge_server_multiplexed.js",
+    "bridge": "node bridge/bridge_server.js",
     "mcp": "node bridge/mcp-server.js",
     "pack:extension": "node pack-extension.js",
     "pack:extension:clean": "node pack-extension.js --no-timestamp",

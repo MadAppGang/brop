@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Test script for the unified bridge server
+ * Test script for the bridge server
  * Tests both BROP and CDP functionality
  */
 
