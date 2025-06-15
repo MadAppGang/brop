@@ -720,11 +720,20 @@ class UnifiedBridgeServer {
 		const method = eventData.method;
 		const params = eventData.params;
 		const tabId = eventData.tabId;
+		const sessionId = eventData.sessionId;
+
+		// Log the event for debugging
+		this.logger.logSuccess("CDP", `event:${method}`, `tab_${tabId || 'unknown'}`);
 
 		const cdpEventMessage = {
 			method: method,
 			params: params,
 		};
+
+		// Add sessionId if this is a session-specific event
+		if (sessionId) {
+			cdpEventMessage.sessionId = sessionId;
+		}
 
 		const messageStr = JSON.stringify(cdpEventMessage);
 
@@ -734,7 +743,6 @@ class UnifiedBridgeServer {
 			const mainClient = this.getMainBrowserClient();
 			if (mainClient) {
 				mainClient.ws.send(messageStr);
-				this.logger.logSuccess("CDP", `event:${method}`, "main_browser");
 			}
 		} else if (tabId) {
 			// Tab-specific events route to session client
@@ -742,13 +750,11 @@ class UnifiedBridgeServer {
 			const sessionClient = this.getSessionClientForTarget(targetId);
 			if (sessionClient) {
 				sessionClient.ws.send(messageStr);
-				this.logger.logSuccess("CDP", `event:${method}`, "target_session");
 			} else {
 				// Fallback to main client
 				const mainClient = this.getMainBrowserClient();
 				if (mainClient) {
 					mainClient.ws.send(messageStr);
-					this.logger.logSuccess("CDP", `event:${method}`, "main_fallback");
 				}
 			}
 		}
