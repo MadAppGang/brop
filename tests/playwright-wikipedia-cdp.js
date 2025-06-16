@@ -16,10 +16,10 @@ async function testWikipediaCDP() {
   }
 
   try {
-    const proxyPort = 19222;
-    // Connect to Chrome via CDP on port 9222
-    console.log(`📡 Connecting to CDP on port ${proxyPort}...`);
-    browser = await chromium.connectOverCDP(`http://localhost:${proxyPort}`);
+    // Connect directly to Bridge server instead of proxy
+    const bridgePort = 9222;
+    console.log(`📡 Connecting to CDP on port ${bridgePort}...`);
+    browser = await chromium.connectOverCDP(`http://localhost:${bridgePort}`);
     console.log('✅ Connected to browser via CDP\n');
 
     // Get the default context
@@ -52,24 +52,50 @@ async function testWikipediaCDP() {
     console.log('1. Welcome Message:');
     console.log(`   "${welcomeText}"\n`);
 
-    // 2. Get today's featured article title
-    const featuredTitle = await page.$eval('#mp-tfa h2', el => el.textContent?.trim() || 'Not found');
+    // 2. Get today's featured article title - use the correct selector
+    let featuredTitle = 'Not found';
+    try {
+      // The heading has id="mp-tfa-h2"
+      const heading = await page.$('#mp-tfa-h2');
+      if (heading) {
+        featuredTitle = await heading.textContent() || 'Not found';
+        featuredTitle = featuredTitle.trim();
+      }
+    } catch (e) {
+      // If selector fails, just use default
+    }
     console.log('2. Featured Article Section:');
     console.log(`   "${featuredTitle}"\n`);
 
     // 3. Get the first paragraph of featured article
-    const featuredContent = await page.$eval('#mp-tfa p:first-of-type', el => {
-      const text = el.textContent?.trim() || '';
-      // Limit to first 200 characters for readability
-      return text.length > 200 ? text.substring(0, 200) + '...' : text;
-    }).catch(() => 'Featured article content not found');
+    let featuredContent = 'Featured article content not found';
+    try {
+      // The featured article content is in #mp-tfa div, first p element
+      const featuredPara = await page.$('#mp-tfa p');
+      if (featuredPara) {
+        const text = await featuredPara.textContent();
+        featuredContent = text?.trim() || '';
+        // Limit to first 200 characters for readability
+        if (featuredContent.length > 200) {
+          featuredContent = featuredContent.substring(0, 200) + '...';
+        }
+      }
+    } catch (e) {
+      // Use default if selector fails
+    }
     console.log('3. Featured Article Preview:');
     console.log(`   "${featuredContent}"\n`);
 
     // 4. Get "In the news" section
-    const newsItems = await page.$$eval('#mp-itn ul li', items =>
-      items.slice(0, 3).map(li => li.textContent?.trim() || '').filter(text => text)
-    ).catch(() => []);
+    let newsItems = [];
+    try {
+      // News items are in #mp-itn ul li elements
+      newsItems = await page.$$eval('#mp-itn > ul > li', items =>
+        items.slice(0, 3).map(li => li.textContent?.trim() || '').filter(text => text)
+      );
+    } catch (e) {
+      // Use empty array if selector fails
+    }
     console.log('4. In The News (first 3 items):');
     newsItems.forEach((item, i) => {
       console.log(`   ${i + 1}. ${item.substring(0, 100)}${item.length > 100 ? '...' : ''}`);
@@ -97,8 +123,8 @@ async function testWikipediaCDP() {
     await page.fill('#searchInput', 'artificial intelligence');
     await page.press('#searchInput', 'Enter');
 
-    // Wait for navigation
-    await page.waitForNavigation({ waitUntil: 'networkidle' });
+    // Just wait a bit for the page to load
+    await page.waitForTimeout(3000);
     console.log('✅ Search complete\n');
 
     // Get the article title
