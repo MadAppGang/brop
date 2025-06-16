@@ -77,7 +77,7 @@ async function testWikipediaCDP() {
         featuredContent = text?.trim() || '';
         // Limit to first 200 characters for readability
         if (featuredContent.length > 200) {
-          featuredContent = featuredContent.substring(0, 200) + '...';
+          featuredContent = `${featuredContent.substring(0, 200)}...`;
         }
       }
     } catch (e) {
@@ -134,7 +134,7 @@ async function testWikipediaCDP() {
     // Get the first paragraph of the article
     const firstParagraph = await page.$eval('#mw-content-text .mw-parser-output > p:first-of-type', el => {
       const text = el.textContent?.trim() || '';
-      return text.length > 300 ? text.substring(0, 300) + '...' : text;
+      return text.length > 300 ? `${text.substring(0, 300)}...` : text;
     });
     console.log('8. First Paragraph:');
     console.log(`   "${firstParagraph}"\n`);
