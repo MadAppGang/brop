@@ -389,6 +389,80 @@ The extension popup includes:
 - [ ] TypeScript conversion
 - [ ] npm package for JavaScript client library
 
+## CDP Traffic Analysis
+
+BROP includes powerful tools for capturing and analyzing Chrome DevTools Protocol (CDP) traffic to debug and compare implementations.
+
+### Capturing CDP Traffic
+
+1. **Start mitmproxy with CDP capture script:**
+
+```bash
+# Capture native Chrome CDP traffic
+export CDP_DUMP_FILE="cdp_dump_native.jsonl"
+mitmdump -s tools/cdp_dump.py --mode reverse:http://localhost:9222 -p 19222
+
+# Or use npm script
+pnpm run capture:cdp:native
+```
+
+2. **Connect Playwright to the proxy:**
+
+```javascript
+// Connect through proxy to capture traffic
+const browser = await chromium.connectOverCDP('http://localhost:19222');
+```
+
+3. **Run your test scenario**
+
+4. **Stop mitmproxy (Ctrl+C)** - Traffic is saved to the JSONL file
+
+### Analyzing CDP Traffic
+
+Compare two CDP dumps side-by-side:
+
+```bash
+# Compare native Chrome vs Bridge implementation
+pnpm run analyze:cdp:traffic cdp_dump_native.jsonl cdp_dump_bridge.jsonl
+
+# Or use the npm shortcut
+pnpm run compare:cdp
+```
+
+This generates an interactive HTML report with:
+- Side-by-side message timeline
+- Expandable message details
+- Divergence highlighting
+- Search and filtering
+- Performance metrics
+
+### Example Workflow
+
+```bash
+# 1. Capture native Chrome CDP traffic
+pnpm run capture:cdp:native
+# Run your Playwright test against Chrome
+# Stop with Ctrl+C
+
+# 2. Capture Bridge CDP traffic  
+pnpm run capture:cdp:bridge
+# Run same test against Bridge
+# Stop with Ctrl+C
+
+# 3. Generate comparison report
+pnpm run compare:cdp
+# Opens interactive HTML report
+```
+
+### CDP Analysis Features
+
+- **Visual Timeline**: See messages in chronological order
+- **Expandable Details**: Click any message to see full JSON
+- **Divergence Detection**: Automatically highlights differences
+- **Performance Metrics**: Compare timing and message counts
+- **Method Analysis**: See which CDP methods are used/missing
+- **Search & Filter**: Find specific messages quickly
+
 ## Related Documentation
 
 - **[MCP_README.md](MCP_README.md)** - Complete MCP server documentation and usage examples

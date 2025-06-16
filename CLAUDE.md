@@ -1,5 +1,38 @@
 # BROP Development Instructions
 
+## CDP Traffic Analysis Tools
+
+### Capturing CDP Traffic
+
+BROP includes tools to capture and analyze Chrome DevTools Protocol traffic:
+
+```bash
+# Capture native Chrome CDP traffic
+export CDP_DUMP_FILE="cdp_dump_native.jsonl"
+mitmdump -s tools/cdp_dump.py --mode reverse:http://localhost:9222 -p 19222
+
+# Then connect Playwright through the proxy
+const browser = await chromium.connectOverCDP('http://localhost:19222');
+```
+
+### Analyzing CDP Traffic
+
+```bash
+# Compare two CDP dumps
+node tools/cdp-traffic-analyzer.js native.jsonl bridge.jsonl output.html
+
+# Use npm scripts
+pnpm run capture:cdp:native  # Start capture for native Chrome
+pnpm run capture:cdp:bridge  # Start capture for bridge
+pnpm run compare:cdp         # Generate comparison report
+```
+
+The analyzer creates an interactive HTML report with:
+- Side-by-side message timeline
+- Expandable message details
+- Divergence highlighting
+- Performance metrics
+
 ## Package Manager
 
 Use `pnpm` instead of `npm` for all package management operations:
