@@ -1,196 +1,214 @@
-# BROP Development Instructions
+# MCP-BROP Development Instructions
 
-## CDP Traffic Analysis Tools
+MCP-BROP (Model Context Protocol - Browser Remote Operations Protocol) is a browser automation system that bridges Chrome Extension APIs with industry-standard protocols, enabling AI agents and automation tools to control Chrome browsers.
+
+## Architecture Overview
+
+### Unified Bridge Server Architecture
+
+The system uses a **unified bridge server** (`bridge/bridge_server.js`) that handles both BROP and CDP protocols without requiring an external Chrome instance:
+
+- **BROP Protocol (Port 9225)**: Native browser automation commands
+- **CDP Protocol (Port 9222)**: Chrome DevTools Protocol compatibility for Playwright/Puppeteer
+- **Extension Connection (Port 9224)**: WebSocket connection to Chrome extension
+- **No External Chrome Required**: Everything routes through Chrome Extension APIs
+
+### Key Components
+
+1. **Chrome Extension** (Manifest V3)
+   - `main_background.js`: Service worker handling protocol routing
+   - Content scripts for DOM manipulation
+   - Popup UI for real-time status monitoring
+   - Direct Chrome Extension API usage
+
+2. **Bridge Server** (`bridge/bridge_server.js`)
+   - Unified server handling both BROP and CDP
+   - Protocol separation with dedicated handlers
+   - HTTP endpoints for logs and debugging
+   - Session management for complex automation
+
+3. **MCP Server** (`bridge/mcp-server.js`)
+   - Model Context Protocol interface for AI agents
+   - Dual-mode operation (server when port 9223 free, relay when occupied)
+   - STDIO transport for Claude and other AI tools
+   - Complete browser automation tool suite
+
+## Package Manager
+
+Use `pnpm` for all package management:
+```bash
+pnpm install        # Install dependencies
+pnpm add <package>  # Add new dependency
+pnpm run <script>   # Run npm scripts
+```
+
+## Development Workflow
+
+### Starting Development
+
+```bash
+pnpm run dev        # Start with auto-reload (recommended)
+pnpm run bridge     # Start bridge server directly
+pnpm run mcp        # Start MCP server for AI integration
+```
+
+### Testing
+
+```bash
+pnpm run test:bridge     # Test unified bridge (recommended)
+pnpm run test:wikipedia  # Run real-world Wikipedia tests
+pnpm run test:cdp        # Test CDP compatibility
+pnpm run test:brop       # Test BROP protocol
+```
+
+### Extension Management
+
+```bash
+pnpm run pack:extension        # Create timestamped zip
+pnpm run pack:extension:clean  # Create clean 'brop-extension.zip'
+```
+
+## Debugging Toolkit
+
+### Extension Debugging
+
+```bash
+pnpm run debug:errors     # Get current extension errors
+pnpm run debug:clear      # Clear errors for fresh testing
+pnpm run debug:reload     # Remotely reload extension
+```
+
+### Bridge Server Debugging
+
+```bash
+pnpm run debug:logs       # Get bridge server logs
+# HTTP API: http://localhost:9222/logs?limit=50&level=info
+```
+
+### Complete Debug Workflow
+
+```bash
+pnpm run debug:workflow   # Full debug cycle:
+# 1. Clear extension errors
+# 2. Run tests
+# 3. Check extension errors
+# 4. Get bridge logs
+# 5. Reload extension if needed
+```
+
+## CDP Traffic Analysis
 
 ### Capturing CDP Traffic
 
-BROP includes tools to capture and analyze Chrome DevTools Protocol traffic:
-
 ```bash
 # Capture native Chrome CDP traffic
-export CDP_DUMP_FILE="cdp_dump_native.jsonl"
-mitmdump -s tools/cdp_dump.py --mode reverse:http://localhost:9222 -p 19222
+export CDP_DUMP_FILE="reports/cdp_dump_native.jsonl"
+pnpm run capture:cdp:native
 
-# Then connect Playwright through the proxy
-const browser = await chromium.connectOverCDP('http://localhost:19222');
+# Capture bridge CDP traffic
+export CDP_DUMP_FILE="reports/cdp_dump_bridge.jsonl"
+pnpm run capture:cdp:bridge
 ```
 
 ### Analyzing CDP Traffic
 
 ```bash
 # Compare two CDP dumps
-node tools/cdp-traffic-analyzer.js native.jsonl bridge.jsonl output.html
+pnpm run compare:cdp
 
-# Use npm scripts
-pnpm run capture:cdp:native  # Start capture for native Chrome
-pnpm run capture:cdp:bridge  # Start capture for bridge
-pnpm run compare:cdp         # Generate comparison report
+# Or manually:
+node tools/cdp-traffic-analyzer.js native.jsonl bridge.jsonl output.html
 ```
 
-The analyzer creates an interactive HTML report with:
-- Side-by-side message timeline
-- Expandable message details
-- Divergence highlighting
-- Performance metrics
+## Protocol Details
 
-## Package Manager
+### BROP Protocol Commands
 
-Use `pnpm` instead of `npm` for all package management operations:
+Native browser automation commands handled by `brop_server.js`:
+- `navigate_to_url` - Browser navigation
+- `get_page_content` - Content extraction with Readability
+- `get_simplified_dom` - DOM structure extraction
+- `get_console_logs` - Console log capture
+- `execute_console` - JavaScript execution
+- `click_element`, `type_text` - Element interaction
+- `create_tab`, `close_tab`, `list_tabs` - Tab management
+- `get_screenshot` - Screenshot capture
+- Extension management commands
 
-- `pnpm install` - Install dependencies
-- `pnpm add <package>` - Add new dependency
-- `pnpm run <script>` - Run npm scripts
+### CDP Protocol Support
 
-## Development Workflow
+Full Chrome DevTools Protocol compatibility:
+- Target and session management
+- Runtime evaluation
+- Page navigation and lifecycle
+- Network interception
+- Browser context handling
 
-- `pnpm run dev` - Start development environment with nodemon (auto-restart on file changes)
-- `pnpm run bridge` - Start unified bridge server directly
+## Message Flow
 
-## Extension Packaging
-
-- `pnpm run pack:extension` - Create timestamped Chrome extension zip package
-- `pnpm run pack:extension:clean` - Create clean 'brop-extension.zip' without timestamp
-- Packages only essential Chrome extension files for distribution
-
-## Complete Debugging Toolkit
-
-### 1. Extension Error Collection
-
-- `pnpm run debug:errors` - Get current extension errors
-- `pnpm run debug:clear` - Clear extension errors for fresh testing
-- Remote error validation: Extension collects Chrome API errors, debugger issues, and runtime failures
-
-### 2. Extension Management
-
-- `pnpm run debug:reload` - Remotely reload Chrome extension
-- Auto-reload triggers: Extension automatically reloads when manifest.json or extension files change
-- Permission fixes: Remove `activeTab` permission if "not in effect" errors occur
-
-### 3. Bridge Server Auto-Reload
-
-- `pnpm run dev` - Nodemon watches bridge/ files and restarts automatically
-- File watching: Monitors .js, .json, .html files for changes
-- Development efficiency: No manual bridge server restarts needed
-
-### 4. Bridge Server Logs
-
-- `pnpm run debug:logs` - Get bridge server console logs remotely
-- HTTP endpoint: `http://localhost:9222/logs?limit=50&level=info`
-- Log storage: Keeps last 1000 log entries in memory
-- Options: `--limit <number>`, `--level <level>`, `--summary`
-
-### 5. Complete Debug Workflow
-
-- `pnpm run debug:workflow` - Run full debug cycle:
-  1. Clear extension errors
-  2. Run tests
-  3. Check extension errors
-  4. Get bridge logs
-  5. Reload extension if needed
-
-### 6. Testing Commands
-
-- `pnpm run test:complete` - Complete flow test (generates 7 commands for popup testing)
-- `pnpm run test:reload` - Test extension reload mechanism with measurable feature
-
-## Automated Debug Techniques
-
-This toolkit provides complete remote debugging capabilities:
-
-1. **Error Monitoring**: Collect extension errors without Chrome DevTools
-2. **Remote Control**: Reload extension programmatically for testing cycles
-3. **Auto-Restart**: Bridge server restarts automatically on code changes
-4. **Log Access**: Get bridge server logs via HTTP API for troubleshooting
-5. **Workflow Automation**: Complete debug cycle with single command
-
-## Key Files
-
-- `nodemon.json` - Nodemon configuration for auto-restart
-- `main_background.js` - Main extension background script with protocol routing
-- `bridge/bridge_server.js` - Unified bridge server with HTTP logs endpoint
-- `manifest.json` - Chrome extension manifest (remove activeTab permission if issues)
-- `get-bridge-logs.js` - Utility to fetch bridge server logs
-- Debug utilities: `debug-clear.js`, `get-extension-errors.js`, `debug-reload.js`, `debug-workflow.js`
-
-## Testing
-
-Available test commands:
-- `pnpm run test:bridge` - Test unified bridge server (recommended)
-- `pnpm run test:brop` - Test BROP protocol specifically  
-- `pnpm run test:quick` - Quick CDP test
-- `pnpm run test:cdp` - Test CDP functionality
-
-Before committing changes, ensure:
-
-1. Bridge server starts without port conflicts
-2. Extension connects successfully
-3. No Chrome extension permission errors
-4. Run `pnpm run test:bridge` to validate functionality
-5. Check bridge logs for any runtime issues
-
-## Unified Architecture
-
-The current system uses a unified bridge server that:
-- **BROP multiplexing**: Multiple BROP clients on port 9225
-- **CDP compatibility**: Playwright/Puppeteer support on port 9222
-- **Extension connection**: Single extension connection on port 9224
-- **No external Chrome dependency**: Everything routes through Chrome Extension APIs
-- **Protocol separation**: Clean separation between BROP and CDP commands
-- **Centralized logging**: All logs accessible via HTTP endpoint
-- **Session management**: Proper CDP Target.* command handling for Playwright
+```
+Client → Bridge Server → Chrome Extension → Chrome APIs
+              ↓                    ↓
+         Protocol Router    Protocol Handlers
+                            (BROP/CDP)
+```
 
 ## Port Configuration
 
-- **Port 9222**: CDP endpoint for Playwright/Puppeteer clients
-- **Port 9224**: Extension WebSocket connection
-- **Port 9225**: BROP native client connections
-
-## Architecture Simplifications
-
-### Removed Components
-- ❌ `bridge_server_multiplexed.js` - Legacy multiplexed server
-- ❌ `start-multiplexed-system.js` - Outdated automation script
-- ❌ External Chrome dependency on port 9223
-- ❌ Separate BROP/CDP servers
-
-### Current Components
-- ✅ `bridge/bridge_server.js` - Unified server handling both protocols
-- ✅ `main_background.js` - Clean protocol router
-- ✅ Protocol separation within unified architecture
-- ✅ Direct Chrome Extension API usage only
-
-## Development Best Practices
-
-1. **Start with unified bridge**: Always use `pnpm run dev` or `pnpm run bridge`
-2. **Test both protocols**: Use `pnpm run test:bridge` to validate BROP and CDP
-3. **Monitor logs**: Use `pnpm run debug:logs` for real-time debugging
-4. **Check extension health**: Use `pnpm run debug:errors` for extension issues
-5. **Clean testing**: Use `pnpm run debug:clear` before test runs
+- **9222**: CDP endpoint (Playwright/Puppeteer)
+- **9224**: Extension WebSocket connection
+- **9225**: BROP native client connections
 
 ## Troubleshooting
 
-### Common Issues
+### Port Conflicts
 
-1. **Port conflicts**: Bridge server fails to start
-   - Solution: Check for processes on ports 9222, 9224, 9225
-   - Kill conflicting processes: `lsof -ti:9222 | xargs kill`
+```bash
+# Check for processes on ports
+lsof -ti:9222,9224,9225
 
-2. **Extension not connecting**: Bridge shows no extension connection
-   - Solution: Reload extension via `pnpm run debug:reload`
-   - Check extension errors: `pnpm run debug:errors`
+# Kill conflicting processes
+lsof -ti:9222 | xargs kill
+```
 
-3. **CDP commands failing**: Playwright/Puppeteer not working
-   - Solution: Verify extension debugger permissions
-   - Test with `pnpm run test:cdp`
+### Extension Not Connecting
 
-4. **Performance issues**: Slow response times
-   - Solution: Check bridge logs for bottlenecks
-   - Monitor with `pnpm run debug:logs --limit 100`
+1. Check extension errors: `pnpm run debug:errors`
+2. Reload extension: `pnpm run debug:reload`
+3. Verify manifest permissions
 
-## Extension Development Notes
+### CDP Commands Failing
 
-- Extension uses service worker model (manifest v3)
-- Protocol routing handled in `main_background.js`
-- Content scripts inject into web pages for DOM access
-- Popup provides real-time status and debugging interface
-- No build process required - direct file loading
+1. Test with: `pnpm run test:cdp`
+2. Check bridge logs: `pnpm run debug:logs`
+3. Verify debugger permissions in manifest
+
+### Performance Issues
+
+1. Monitor logs: `pnpm run debug:logs --limit 100`
+2. Check for message bottlenecks
+3. Review CDP traffic analysis
+
+## Best Practices
+
+1. **Always use unified bridge**: Start with `pnpm run dev`
+2. **Test both protocols**: Use `pnpm run test:bridge`
+3. **Monitor continuously**: Keep logs open during development
+4. **Clean testing**: Clear errors before test runs
+5. **Check extension health**: Regular error monitoring
+
+## Key Files
+
+- `bridge/bridge_server.js` - Unified bridge server
+- `main_background.js` - Extension background script
+- `manifest.json` - Chrome extension manifest
+- `package.json` - Project configuration
+- `nodemon.json` - Auto-reload configuration
+
+## Before Committing
+
+1. Ensure bridge server starts without conflicts
+2. Verify extension connects successfully
+3. Run `pnpm run test:bridge` successfully
+4. Check for Chrome permission errors
+5. Review bridge logs for runtime issues
