@@ -42,19 +42,43 @@ class CDPServer {
 	setupCDPEventForwarding() {
 		// Forward CDP events from debugger to bridge
 		chrome.debugger.onEvent.addListener((source, method, params) => {
-			console.log(`🎭 CDP Event: ${method} from tab ${source.tabId}`);
+			console.log(`🎭 CDP Event: ${method} from tab ${source.tabId}, frame ${source.frameId || 'main'}`);
 
-			// Forward the event with tabId only - Bridge will handle session mapping
+			// Forward the event with proper targetId (frameId)
 			if (this.onEventCallback) {
 				const connectionId = this.tabToConnection.get(source.tabId);
-				this.onEventCallback({
-					type: "cdp_event",
-					method: method,
-					params: params,
-					tabId: source.tabId,
-					targetId: source.tabId.toString(),
-					connectionId: connectionId, // Include connection ID if known
-				});
+				// If frameId is provided in source, use it; otherwise get main frame
+				let targetId = source.frameId ? source.frameId.toString() : null;
+				
+				if (!targetId) {
+					// For events without frameId, we need to get the main frame ID
+					chrome.webNavigation.getAllFrames({ tabId: source.tabId }, (frames) => {
+						const mainFrame = frames.find(frame => frame.parentFrameId === -1);
+						if (mainFrame) {
+							targetId = mainFrame.frameId.toString();
+						} else {
+							targetId = source.tabId.toString(); // Fallback
+						}
+						
+						this.onEventCallback({
+							type: "cdp_event",
+							method: method,
+							params: params,
+							tabId: source.tabId,
+							targetId: targetId,
+							connectionId: connectionId,
+						});
+					});
+				} else {
+					this.onEventCallback({
+						type: "cdp_event",
+						method: method,
+						params: params,
+						tabId: source.tabId,
+						targetId: targetId,
+						connectionId: connectionId,
+					});
+				}
 			}
 		});
 
@@ -432,21 +456,95 @@ class CDPServer {
 			tab = await chrome.tabs.create({ url });
 		}
 
-		// Don't create session mapping here - wait for Bridge to send Target.attachedToTarget
-		const targetId = tab.id.toString();
-		
 		// Track connection to tab mapping
 		if (connectionId) {
 			this.connectionToTab.set(connectionId, tab.id);
 			this.tabToConnection.set(tab.id, connectionId);
 			console.log(`🎭 Mapped connection ${connectionId} to tab ${tab.id}`);
 		}
-		
-		console.log(
-			`🎭 Created target: ${targetId} (tab ${tab.id}) - waiting for Bridge to assign sessionId`,
-		);
 
-		return { targetId };
+		// Attach debugger first
+		try {
+			await chrome.debugger.attach({ tabId: tab.id }, "1.3");
+			this.attachedTabs.add(tab.id);
+		} catch (error) {
+			if (!error.message.includes("Another debugger is already attached")) {
+				throw error;
+			}
+		}
+
+		// Send Page.getFrameTree with a very large ID to get the real frame ID
+		const largeRequestId = 1000000 + Math.floor(Math.random() * 1000000);
+		
+		// Create a promise to wait for the response
+		const frameTreePromise = new Promise((resolve) => {
+			this.pendingFrameTreeRequests = this.pendingFrameTreeRequests || new Map();
+			this.pendingFrameTreeRequests.set(largeRequestId, { resolve, tabId: tab.id, connectionId });
+		});
+
+		// Send Page.getFrameTree to get the real frame ID
+		await chrome.debugger.sendCommand({ tabId: tab.id }, "Page.getFrameTree", {}, (result) => {
+			if (chrome.runtime.lastError) {
+				console.error("Failed to get frame tree:", chrome.runtime.lastError);
+				return;
+			}
+			
+			// Process the result immediately
+			const frameId = result.frameTree.frame.id;
+			const sessionId = this.generateSessionId();
+			
+			console.log(`🎭 Got frame ID ${frameId} for tab ${tab.id}, generating Target.attachedToTarget`);
+			
+			// Store the session mapping
+			this.debuggerSessions.set(tab.id, {
+				sessionId,
+				targetId: frameId,
+				browserContextId: browserContextId
+			});
+			
+			// Send Target.attachedToTarget event
+			if (this.onEventCallback) {
+				this.onEventCallback({
+					type: "cdp_event",
+					method: "Target.attachedToTarget",
+					params: {
+						sessionId: sessionId,
+						targetInfo: {
+							targetId: frameId,
+							type: "page",
+							title: "",
+							url: url,
+							attached: true,
+							canAccessOpener: false,
+							browserContextId: browserContextId
+						},
+						waitingForDebugger: true
+					},
+					connectionId: connectionId
+				});
+			}
+			
+			// Resolve with frame ID
+			if (this.pendingFrameTreeRequests?.has(largeRequestId)) {
+				const pending = this.pendingFrameTreeRequests.get(largeRequestId);
+				this.pendingFrameTreeRequests.delete(largeRequestId);
+				pending.resolve(frameId);
+			}
+		});
+
+		// Wait for frame ID
+		const frameId = await frameTreePromise;
+		
+		console.log(`🎭 Created target: frameId ${frameId} (tab ${tab.id})`);
+
+		return { targetId: frameId };
+	}
+	
+	generateSessionId() {
+		// Generate a session ID in the same format as CDP
+		const array = new Uint8Array(16);
+		crypto.getRandomValues(array);
+		return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
 	}
 
 	// Target.closeTarget implementation

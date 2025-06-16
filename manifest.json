@@ -9,7 +9,8 @@
 		"scripting",
 		"nativeMessaging",
 		"alarms",
-		"debugger"
+		"debugger",
+		"webNavigation"
 	],
 	"icons": {
 		"16": "icons/icon16.png",
