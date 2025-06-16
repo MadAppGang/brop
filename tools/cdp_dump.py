@@ -8,11 +8,7 @@ def log_message(msg):
     print(f"[{timestamp}] {msg}")
 
 # Get output filename from arguments or environment variable
-def get_output_filename():
-    # Method 1: Check command line arguments
-    if len(sys.argv) > 1:
-        return sys.argv[1]
-    
+def get_output_filename():    
     # Method 2: Check environment variable
     if 'CDP_DUMP_FILE' in os.environ:
         return os.environ['CDP_DUMP_FILE']

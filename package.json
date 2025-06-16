@@ -15,6 +15,7 @@
     "test:brop": "cd tests && node quick-brop-test.js",
     "test:bridge": "cd tests && node unified-bridge-test.js",
     "test:wikipedia": "cd tests && node playwright-wikipedia-test.js",
+    "test:wikipedia:cdp": "cd tests && node playwright-wikipedia-cdp.js",
     "test:cdp:real": "cd tests && node test-real-cdp-proxy.js",
     "test:cdp:bridge": "cd tests && node test-bridge-cdp-proxy.js",
     "proxy": "cd tests && node cdp-proxy.js",
@@ -24,9 +25,9 @@
     "test:raw:cdp": "cd tests && node raw-chrome-cdp-test.js",
     "test:cdp:summary": "cd tests && node cdp-support-summary.js",
     "analyze:cdp:traffic": "node tools/cdp-traffic-analyzer.js",
-    "capture:cdp:native": "export CDP_DUMP_FILE='cdp_dump_native.jsonl' && mitmdump -s tools/cdp_dump.py --mode reverse:http://localhost:9222 -p 19222",
-    "capture:cdp:bridge": "export CDP_DUMP_FILE='cdp_dump_bridge.jsonl' && mitmdump -s tools/cdp_dump.py --mode reverse:http://localhost:9222 -p 19222",
-    "compare:cdp": "node tools/cdp-traffic-analyzer.js cdp_dump_native.jsonl cdp_dump_bridge.jsonl"
+    "capture:cdp:native": "export CDP_DUMP_FILE='reports/cdp_dump_native.jsonl' && mitmdump -s tools/cdp_dump.py --mode reverse:http://localhost:9222 -p 19222",
+    "capture:cdp:bridge": "export CDP_DUMP_FILE='reports/cdp_dump_bridge.jsonl' && mitmdump -s tools/cdp_dump.py --mode reverse:http://localhost:9222 -p 19222",
+    "compare:cdp": "node tools/cdp-traffic-analyzer.js reports/cdp_dump_native.jsonl reports/cdp_dump_bridge.jsonl"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.270",

@@ -126,6 +126,9 @@ class UnifiedBridgeServer {
 		this.pendingCommandInfo = new Map(); // messageId -> { command, connection } for response logging
 		this.messageCounter = 0;
 		this.connectionCounter = 0;
+		
+		// Default browser context ID (consistent across session)
+		this.defaultBrowserContextId = this.generateBrowserContextId();
 
 		// Server instances
 		this.bropServer = null;
@@ -553,6 +556,10 @@ class UnifiedBridgeServer {
 					id: messageId,
 					error: { code: -32000, message: "Chrome extension not connected" },
 				};
+				// Add sessionId if present in the original request
+				if (sessionId) {
+					errorResponse.sessionId = sessionId;
+				}
 				clientInfo.ws.send(JSON.stringify(errorResponse));
 				this.logger.logError(
 					"CDP",
@@ -664,6 +671,10 @@ class UnifiedBridgeServer {
 							result: data.result,
 							error: data.error,
 						};
+						// Add sessionId if the original request had one
+						if (requestInfo.sessionId) {
+							cdpResponse.sessionId = requestInfo.sessionId;
+						}
 						requestInfo.originalClient.send(JSON.stringify(cdpResponse));
 					}
 				}
@@ -701,9 +712,9 @@ class UnifiedBridgeServer {
 						url: "about:blank",
 						attached: true,
 						canAccessOpener: false,
-						browserContextId: "default",
+						browserContextId: this.defaultBrowserContextId,
 					},
-					waitingForDebugger: false,
+					waitingForDebugger: true,
 				},
 			};
 
@@ -720,7 +731,6 @@ class UnifiedBridgeServer {
 		const method = eventData.method;
 		const params = eventData.params;
 		const tabId = eventData.tabId;
-		const sessionId = eventData.sessionId;
 
 		// Log the event for debugging
 		this.logger.logSuccess("CDP", `event:${method}`, `tab_${tabId || 'unknown'}`);
@@ -730,9 +740,14 @@ class UnifiedBridgeServer {
 			params: params,
 		};
 
-		// Add sessionId if this is a session-specific event
-		if (sessionId) {
-			cdpEventMessage.sessionId = sessionId;
+		// Look up sessionId based on tabId/targetId mapping
+		if (tabId && !method.startsWith("Target.")) {
+			const targetId = tabId.toString();
+			const sessionId = this.targetToSession.get(targetId);
+			if (sessionId) {
+				cdpEventMessage.sessionId = sessionId;
+				this.logger.logSuccess("CDP", `mapped tab ${tabId} to session ${sessionId}`, "");
+			}
 		}
 
 		const messageStr = JSON.stringify(cdpEventMessage);
@@ -746,7 +761,7 @@ class UnifiedBridgeServer {
 			}
 		} else if (tabId) {
 			// Tab-specific events route to session client
-			const targetId = `tab_${tabId}`;
+			const targetId = tabId.toString();
 			const sessionClient = this.getSessionClientForTarget(targetId);
 			if (sessionClient) {
 				sessionClient.ws.send(messageStr);
@@ -791,6 +806,15 @@ class UnifiedBridgeServer {
 	}
 
 	generateSessionId() {
+		return Array.from({ length: 32 }, () =>
+			Math.floor(Math.random() * 16)
+				.toString(16)
+				.toUpperCase(),
+		).join("");
+	}
+	
+	generateBrowserContextId() {
+		// Generate browser context ID in same format as native Chrome (32 char uppercase hex)
 		return Array.from({ length: 32 }, () =>
 			Math.floor(Math.random() * 16)
 				.toString(16)
