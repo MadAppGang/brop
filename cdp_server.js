@@ -47,38 +47,21 @@ class CDPServer {
 			// Forward the event with proper targetId (frameId)
 			if (this.onEventCallback) {
 				const connectionId = this.tabToConnection.get(source.tabId);
-				// If frameId is provided in source, use it; otherwise get main frame
-				let targetId = source.frameId ? source.frameId.toString() : null;
 				
-				if (!targetId) {
-					// For events without frameId, we need to get the main frame ID
-					chrome.webNavigation.getAllFrames({ tabId: source.tabId }, (frames) => {
-						const mainFrame = frames.find(frame => frame.parentFrameId === -1);
-						if (mainFrame) {
-							targetId = mainFrame.frameId.toString();
-						} else {
-							targetId = source.tabId.toString(); // Fallback
-						}
-						
-						this.onEventCallback({
-							type: "cdp_event",
-							method: method,
-							params: params,
-							tabId: source.tabId,
-							targetId: targetId,
-							connectionId: connectionId,
-						});
-					});
-				} else {
-					this.onEventCallback({
-						type: "cdp_event",
-						method: method,
-						params: params,
-						tabId: source.tabId,
-						targetId: targetId,
-						connectionId: connectionId,
-					});
-				}
+				// Look up the targetId from our session mapping
+				const sessionInfo = this.debuggerSessions.get(source.tabId);
+				const targetId = sessionInfo ? sessionInfo.targetId : source.tabId.toString();
+				
+				console.log(`🎭 Event ${method} - using targetId: ${targetId} for tab ${source.tabId}`);
+				
+				this.onEventCallback({
+					type: "cdp_event",
+					method: method,
+					params: params,
+					tabId: source.tabId,
+					targetId: targetId,
+					connectionId: connectionId,
+				});
 			}
 		});
 
@@ -329,6 +312,12 @@ class CDPServer {
 			case "Browser.grantPermissions":
 				return await this.browserGrantPermissions(params);
 
+			case "Browser.getWindowForTarget":
+				return await this.browserGetWindowForTarget(params);
+
+			case "Browser.setWindowBounds":
+				return await this.browserSetWindowBounds(params);
+
 			// Target domain
 			case "Target.getTargets":
 				return await this.targetGetTargets();
@@ -412,6 +401,40 @@ class CDPServer {
 		console.log(
 			"🎭 Browser.grantPermissions called (stubbed in extension context)",
 		);
+		return {};
+	}
+
+	// Browser.getWindowForTarget implementation
+	async browserGetWindowForTarget(params) {
+		// Get the actual current window
+		const window = await chrome.windows.getCurrent();
+		
+		return {
+			windowId: window.id,
+			bounds: {
+				left: window.left || 0,
+				top: window.top || 0,
+				width: window.width || 1280,
+				height: window.height || 720,
+				windowState: window.state || "normal"
+			}
+		};
+	}
+
+	// Browser.setWindowBounds implementation
+	async browserSetWindowBounds(params) {
+		const { windowId, bounds } = params;
+		
+		// Update the window bounds
+		const updateInfo = {};
+		if (bounds.left !== undefined) updateInfo.left = bounds.left;
+		if (bounds.top !== undefined) updateInfo.top = bounds.top;
+		if (bounds.width !== undefined) updateInfo.width = bounds.width;
+		if (bounds.height !== undefined) updateInfo.height = bounds.height;
+		if (bounds.windowState !== undefined) updateInfo.state = bounds.windowState;
+		
+		await chrome.windows.update(windowId, updateInfo);
+		
 		return {};
 	}
 
