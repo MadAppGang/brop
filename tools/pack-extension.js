@@ -14,17 +14,13 @@ import path from "node:path";
 const EXTENSION_FILES = [
 	// Core extension files
 	"manifest.json",
-	"background_bridge_client.js",
+	"main_background.js",
 	"content.js",
 	"injected.js",
 
 	// Web accessible resources
 	"readability.js",
 	"dom-to-semantic-markdown.js",
-
-	// Content processing dependencies
-	"content-extractor.js",
-	"dom_simplifier.js",
 
 	// Popup interface
 	"popup.html",
@@ -33,13 +29,14 @@ const EXTENSION_FILES = [
 	// Icons directory (all files)
 	"icons/",
 
-	// Optional: Include basic documentation
-	"README.md",
+	// BROP and CDP protocol handlers (referenced by main_background.js)
+	"brop_server.js",
+	"cdp_server.js",
 ];
 
 // Additional files that might be referenced by the extension
 const OPTIONAL_FILES = [
-	"background.js", // Legacy background script if present
+	"README.md", // Optional documentation
 ];
 
 function checkFileExists(filePath) {
