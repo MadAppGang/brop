@@ -24,7 +24,10 @@
     "cdp:logs:pretty": "node tools/cdp-log-viewer.js -f pretty",
     "cdp:logs:export": "node tools/cdp-log-viewer.js -l 0 -f jsonl -o reports/cdp_dump_bridge.jsonl",
     "cdp:analyze": "node tools/cdp-traffic-analyzer.js reports/cdp_dump_native.jsonl reports/cdp_dump_bridge.jsonl reports/cdp_comparison.html",
-    "debug:cdp": "pnpm run cdp:logs:pretty -l 50"
+    "debug:cdp": "pnpm run cdp:logs:pretty -l 50",
+    "catch:bridge": "env CDP_DUMP_FILE=reports/cdp_dump_bridge.jsonl mitmproxy -s tools/cdp_dump.py --mode reverse:http://localhost:9222 -p 19222",
+    "catch:native": "env CDP_DUMP_FILE=reports/cdp_dump_native.jsonl mitmproxy -s tools/cdp_dump.py --mode reverse:http://localhost:9222 -p 19222",
+    "catch:report": "node tools/cdp-traffic-analyzer.js reports/cdp_dump_native.jsonl reports/cdp_dump_bridge.jsonl reports/cdp_comparison.html && open reports/cdp_comparison.html"
   },
   "devDependencies": {
     "@browserbasehq/stagehand": "^2.3.0",
