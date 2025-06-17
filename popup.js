@@ -68,6 +68,14 @@ class BROPPopup {
 				this.toggleService();
 			});
 		}
+		
+		// Wakeup service worker button
+		const wakeupBtn = document.getElementById("wakeup-service");
+		if (wakeupBtn) {
+			wakeupBtn.addEventListener("click", () => {
+				this.wakeupServiceWorker();
+			});
+		}
 	}
 
 	async toggleService() {
@@ -121,6 +129,7 @@ class BROPPopup {
 		// Update status every 5 seconds (less frequent to avoid interrupting user)
 		setInterval(() => {
 			this.updateStatus();
+			this.updateStorageHeartbeat();
 			// Only update logs if user is not actively viewing them
 			if (
 				document
@@ -132,6 +141,9 @@ class BROPPopup {
 			}
 			this.updateConsolePreview();
 		}, 5000);
+		
+		// Initial storage heartbeat update
+		this.updateStorageHeartbeat();
 	}
 
 	async updateStatus() {
@@ -1351,6 +1363,72 @@ ID: ${this.escapeHtml(log.id || "N/A")}</div>
 			}
 		} catch (error) {
 			console.error("Failed to clear logs:", error);
+		}
+	}
+	
+	async updateStorageHeartbeat() {
+		try {
+			// Get storage heartbeat data
+			const data = await chrome.storage.local.get([
+				'heartbeat', 
+				'heartbeatCounter',
+				'extensionActive',
+				'connectionStatus'
+			]);
+			
+			// Update heartbeat count
+			const heartbeatCountEl = document.getElementById('heartbeat-count');
+			if (heartbeatCountEl && data.heartbeatCounter !== undefined) {
+				heartbeatCountEl.textContent = data.heartbeatCounter;
+			}
+			
+			// Update last heartbeat time
+			const lastHeartbeatEl = document.getElementById('last-heartbeat');
+			if (lastHeartbeatEl && data.heartbeat) {
+				const secondsAgo = Math.floor((Date.now() - data.heartbeat) / 1000);
+				if (secondsAgo < 60) {
+					lastHeartbeatEl.textContent = `${secondsAgo}s ago`;
+				} else if (secondsAgo < 3600) {
+					const minutesAgo = Math.floor(secondsAgo / 60);
+					lastHeartbeatEl.textContent = `${minutesAgo}m ago`;
+				} else {
+					lastHeartbeatEl.textContent = 'Inactive';
+				}
+			}
+		} catch (error) {
+			console.error('Failed to update storage heartbeat:', error);
+		}
+	}
+	
+	async wakeupServiceWorker() {
+		try {
+			// Send wakeup request via storage
+			await chrome.storage.local.set({
+				wakeupRequest: Date.now(),
+				wakeupSource: 'popup'
+			});
+			
+			// Also try to send a message to ensure it's awake
+			const response = await chrome.runtime.sendMessage({ type: "GET_STATUS" });
+			
+			// Update UI
+			const wakeupBtn = document.getElementById('wakeup-service');
+			if (wakeupBtn) {
+				wakeupBtn.textContent = 'Service Worker Active!';
+				wakeupBtn.style.backgroundColor = 'var(--success)';
+				
+				// Reset button after 2 seconds
+				setTimeout(() => {
+					wakeupBtn.textContent = 'Wake Up Service Worker';
+					wakeupBtn.style.backgroundColor = '';
+				}, 2000);
+			}
+			
+			// Update status immediately
+			await this.updateStatus();
+			await this.updateStorageHeartbeat();
+		} catch (error) {
+			console.error('Failed to wake up service worker:', error);
 		}
 	}
 }

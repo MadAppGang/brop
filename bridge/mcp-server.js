@@ -11,15 +11,18 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import WebSocket from "ws";
 import { z } from "zod";
-import { BROPBridgeServer } from "./bridge_server.js";
+import { UnifiedBridgeServer } from "./bridge_server.js";
 
 class BROPMCPServer {
 	constructor() {
 		this.isServerMode = false;
 		this.bridgeServer = null;
 		this.bropClient = null;
+		this.cdpClient = null;
 		this.isInitializing = false;
 		this.isInitialized = false;
+		this.cdpSessionId = null;
+		this.cdpMessageCounter = 1;
 	}
 
 	log(message) {
@@ -28,10 +31,10 @@ class BROPMCPServer {
 	}
 
 	/**
-	 * Check if port 9223 is available
+	 * Check if port is available
 	 * @returns {Promise<boolean>} true if port is available, false if occupied
 	 */
-	async checkPortAvailability(port = 9223) {
+	async checkPortAvailability(port) {
 		return new Promise((resolve) => {
 			const server = net.createServer();
 
@@ -52,20 +55,20 @@ class BROPMCPServer {
 	}
 
 	/**
-	 * Start in Server Mode - run BROP bridge servers on 9223/9224
+	 * Start in Server Mode - run bridge servers based on port availability
 	 */
 	async startServerMode() {
-		this.log("Starting in SERVER MODE - will start BROP bridge servers");
+		this.log("Starting in SERVER MODE - will start bridge servers");
 
 		try {
-			this.bridgeServer = new BROPBridgeServer({
+			this.bridgeServer = new UnifiedBridgeServer({
 				mcpMode: true,
 				logToStderr: true,
 			});
 			await this.bridgeServer.startServers();
 
 			this.isServerMode = true;
-			this.log("Server Mode: BROP bridge servers started successfully");
+			this.log("Server Mode: Bridge servers started successfully");
 		} catch (error) {
 			this.log(`Failed to start server mode: ${error.message}`);
 			throw error;
@@ -73,15 +76,31 @@ class BROPMCPServer {
 	}
 
 	/**
-	 * Start in Relay Mode - connect to existing BROP server
+	 * Start in Relay Mode - connect to existing servers
 	 */
 	async startRelayMode() {
-		this.log("Starting in RELAY MODE - will connect to existing BROP server");
+		this.log("Starting in RELAY MODE - will connect to existing servers");
 
 		try {
-			await this.connectToBROPServer();
+			// Check and connect to BROP server if available
+			const bropPortAvailable = await this.checkPortAvailability(9225);
+			if (!bropPortAvailable) {
+				await this.connectToBROPServer();
+				this.log("Relay Mode: Connected to BROP server successfully");
+			} else {
+				this.log("BROP server not available on port 9225");
+			}
+
+			// Check and connect to CDP server if available
+			const cdpPortAvailable = await this.checkPortAvailability(9222);
+			if (!cdpPortAvailable) {
+				await this.connectToCDPServer();
+				this.log("Relay Mode: Connected to CDP server successfully");
+			} else {
+				this.log("CDP server not available on port 9222");
+			}
+
 			this.isServerMode = false;
-			this.log("Relay Mode: Connected to BROP server successfully");
 		} catch (error) {
 			this.log(`Failed to start relay mode: ${error.message}`);
 			throw error;
@@ -93,7 +112,7 @@ class BROPMCPServer {
 	 */
 	async connectToBROPServer() {
 		return new Promise((resolve, reject) => {
-			const ws = new WebSocket("ws://localhost:9223?name=mcp-stdio");
+			const ws = new WebSocket("ws://localhost:9225?name=mcp-stdio");
 
 			ws.on("open", () => {
 				this.log("Connected to BROP server as relay client");
@@ -124,32 +143,85 @@ class BROPMCPServer {
 		});
 	}
 
+	/**
+	 * Connect to existing CDP server as a client
+	 */
+	async connectToCDPServer() {
+		return new Promise((resolve, reject) => {
+			const ws = new WebSocket("ws://localhost:9222/devtools/browser/mcp-client");
+
+			ws.on("open", () => {
+				this.log("Connected to CDP server as relay client");
+				this.cdpClient = ws;
+				resolve();
+			});
+
+			ws.on("error", (error) => {
+				this.log(`Failed to connect to CDP server: ${error.message}`);
+				reject(error);
+			});
+
+			ws.on("close", () => {
+				this.log("Connection to CDP server closed");
+				this.cdpClient = null;
+			});
+
+			ws.on("message", (message) => {
+				try {
+					const data = JSON.parse(message.toString());
+					this.log(
+						`Received from CDP server: ${data.method || data.id || "unknown"}`,
+					);
+					// Handle CDP events and responses
+					if (data.method && !data.id) {
+						// This is a CDP event
+						this.handleCDPEvent(data);
+					}
+				} catch (error) {
+					this.log(`Error parsing CDP message: ${error.message}`);
+				}
+			});
+		});
+	}
+
+	handleCDPEvent(event) {
+		// Handle CDP events like Target.attachedToTarget
+		if (event.method === "Target.attachedToTarget") {
+			this.cdpSessionId = event.params.sessionId;
+			this.log(`CDP session established: ${this.cdpSessionId}`);
+		}
+	}
+
 	async initialize() {
 		if (this.isInitializing || this.isInitialized) {
 			return;
 		}
 
 		this.isInitializing = true;
-		this.log("Initializing BROP MCP Server...");
+		this.log("Initializing MCP Server...");
 
 		try {
-			// Check if port 9223 is available
-			const portAvailable = await this.checkPortAvailability(9223);
+			// Check if port 9224 is available (extension port)
+			const extensionPortAvailable = await this.checkPortAvailability(9224);
 
-			if (portAvailable) {
-				this.log("Port 9223 is available - starting in SERVER MODE");
-				await this.startServerMode();
-			} else {
-				this.log("Port 9223 is occupied - starting in RELAY MODE");
+			if (!extensionPortAvailable) {
+				// Extension port is occupied - bridge server is already running
+				this.log("Port 9224 is occupied - bridge server already running");
+				this.log("Starting in RELAY MODE");
 				await this.startRelayMode();
+			} else {
+				// No bridge server running - start our own
+				this.log("Port 9224 is available - no bridge server running");
+				this.log("Starting in SERVER MODE");
+				await this.startServerMode();
 			}
 
 			this.isInitialized = true;
 			this.log(
-				`BROP MCP Server initialized in ${this.isServerMode ? "SERVER" : "RELAY"} mode`,
+				`MCP Server initialized in ${this.isServerMode ? "SERVER" : "RELAY"} mode`,
 			);
 		} catch (error) {
-			this.log(`BROP initialization failed: ${error.message}`);
+			this.log(`MCP initialization failed: ${error.message}`);
 			throw error;
 		} finally {
 			this.isInitializing = false;
@@ -289,6 +361,106 @@ class BROPMCPServer {
 			};
 
 			this.bropClient.send(JSON.stringify(command));
+		});
+	}
+
+	async executeCDPCommand(method, params = {}) {
+		if (!this.isInitialized) {
+			await this.initialize();
+		}
+
+		if (this.isServerMode && this.bridgeServer?.extensionClient) {
+			// Server mode - send through bridge
+			return await this.executeCDPCommandInServerMode(method, params);
+		}
+
+		if (this.cdpClient && this.cdpClient.readyState === WebSocket.OPEN) {
+			// Relay mode - send through CDP client
+			return await this.executeCDPCommandInRelayMode(method, params);
+		}
+
+		throw new Error("No CDP connection available");
+	}
+
+	async executeCDPCommandInServerMode(method, params) {
+		return new Promise((resolve, reject) => {
+			const messageId = this.cdpMessageCounter++;
+
+			const timeout = setTimeout(() => {
+				reject(new Error("CDP command timeout"));
+			}, 10000);
+
+			const responseHandler = (message) => {
+				try {
+					const data = JSON.parse(message);
+					if (data.id === messageId) {
+						clearTimeout(timeout);
+						this.bridgeServer.extensionClient.off("message", responseHandler);
+
+						if (data.result) {
+							resolve(data.result);
+						} else if (data.error) {
+							reject(new Error(data.error.message || "CDP command failed"));
+						}
+					}
+				} catch (error) {
+					// Ignore parse errors for other messages
+				}
+			};
+
+			this.bridgeServer.extensionClient.on("message", responseHandler);
+
+			const command = {
+				type: "BROP_CDP",
+				id: messageId,
+				method: method,
+				params: params,
+			};
+
+			this.bridgeServer.extensionClient.send(JSON.stringify(command));
+		});
+	}
+
+	async executeCDPCommandInRelayMode(method, params) {
+		return new Promise((resolve, reject) => {
+			const messageId = this.cdpMessageCounter++;
+
+			const timeout = setTimeout(() => {
+				reject(new Error("CDP command timeout"));
+			}, 10000);
+
+			const responseHandler = (message) => {
+				try {
+					const data = JSON.parse(message);
+					if (data.id === messageId) {
+						clearTimeout(timeout);
+						this.cdpClient.off("message", responseHandler);
+
+						if (data.result) {
+							resolve(data.result);
+						} else if (data.error) {
+							reject(new Error(data.error.message || "CDP command failed"));
+						}
+					}
+				} catch (error) {
+					// Ignore parse errors for other messages
+				}
+			};
+
+			this.cdpClient.on("message", responseHandler);
+
+			const command = {
+				id: messageId,
+				method: method,
+				params: params,
+			};
+
+			// Add session ID if we have one
+			if (this.cdpSessionId && !method.startsWith("Target.")) {
+				command.sessionId = this.cdpSessionId;
+			}
+
+			this.cdpClient.send(JSON.stringify(command));
 		});
 	}
 
@@ -788,6 +960,10 @@ server.tool(
 				hasBropConnection:
 					bropServer.bropClient &&
 					bropServer.bropClient.readyState === WebSocket.OPEN,
+				hasCdpConnection:
+					bropServer.cdpClient &&
+					bropServer.cdpClient.readyState === WebSocket.OPEN,
+				cdpSessionId: bropServer.cdpSessionId,
 				status: "running",
 			};
 
@@ -796,6 +972,146 @@ server.tool(
 					{
 						type: "text",
 						text: JSON.stringify(status, null, 2),
+					},
+				],
+			};
+		} catch (error) {
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Error: ${error.message}`,
+					},
+				],
+			};
+		}
+	},
+);
+
+// CDP Tools
+server.tool(
+	"cdp_execute_command",
+	"Execute a Chrome DevTools Protocol command",
+	{
+		method: z.string().describe("CDP method to execute (e.g., 'Page.navigate')"),
+		params: z.object({}).passthrough().optional().describe("Parameters for the CDP method"),
+	},
+	async ({ method, params }) => {
+		try {
+			const result = await bropServer.executeCDPCommand(method, params || {});
+			return {
+				content: [
+					{
+						type: "text",
+						text: JSON.stringify(result, null, 2),
+					},
+				],
+			};
+		} catch (error) {
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Error: ${error.message}`,
+					},
+				],
+			};
+		}
+	},
+);
+
+server.tool(
+	"cdp_create_page",
+	"Create a new page using CDP and attach to it",
+	{
+		url: z.string().optional().describe("URL to navigate to (defaults to about:blank)"),
+	},
+	async ({ url }) => {
+		try {
+			// Create a new target
+			const createResult = await bropServer.executeCDPCommand("Target.createTarget", {
+				url: url || "about:blank",
+			});
+
+			// Wait a bit for session to be established
+			await new Promise(resolve => setTimeout(resolve, 500));
+
+			return {
+				content: [
+					{
+						type: "text",
+						text: JSON.stringify({
+							targetId: createResult.targetId,
+							sessionId: bropServer.cdpSessionId,
+						}, null, 2),
+					},
+				],
+			};
+		} catch (error) {
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Error: ${error.message}`,
+					},
+				],
+			};
+		}
+	},
+);
+
+server.tool(
+	"cdp_navigate",
+	"Navigate to a URL using CDP",
+	{
+		url: z.string().describe("URL to navigate to"),
+		waitUntil: z.enum(["load", "domcontentloaded", "networkidle0", "networkidle2"]).optional().describe("When to consider navigation complete"),
+	},
+	async ({ url, waitUntil }) => {
+		try {
+			const result = await bropServer.executeCDPCommand("Page.navigate", {
+				url: url,
+				waitUntil: waitUntil,
+			});
+			return {
+				content: [
+					{
+						type: "text",
+						text: JSON.stringify(result, null, 2),
+					},
+				],
+			};
+		} catch (error) {
+			return {
+				content: [
+					{
+						type: "text",
+						text: `Error: ${error.message}`,
+					},
+				],
+			};
+		}
+	},
+);
+
+server.tool(
+	"cdp_evaluate",
+	"Evaluate JavaScript in the page using CDP",
+	{
+		expression: z.string().describe("JavaScript expression to evaluate"),
+		awaitPromise: z.boolean().optional().describe("Whether to await promise resolution"),
+	},
+	async ({ expression, awaitPromise }) => {
+		try {
+			const result = await bropServer.executeCDPCommand("Runtime.evaluate", {
+				expression: expression,
+				awaitPromise: awaitPromise || false,
+			});
+			return {
+				content: [
+					{
+						type: "text",
+						text: JSON.stringify(result, null, 2),
 					},
 				],
 			};

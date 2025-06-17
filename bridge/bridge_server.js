@@ -607,6 +607,19 @@ class UnifiedBridgeServer {
 			const data = JSON.parse(message);
 			const messageType = data.type;
 
+			// Handle ping/pong keepalive
+			if (messageType === "ping") {
+				// Respond with pong
+				if (this.extensionClient && this.extensionClient.readyState === WebSocket.OPEN) {
+					this.extensionClient.send(JSON.stringify({ 
+						type: "pong", 
+						timestamp: Date.now(),
+						originalTimestamp: data.timestamp 
+					}));
+				}
+				return;
+			}
+
 			if (messageType === "response") {
 				const requestId = data.id;
 

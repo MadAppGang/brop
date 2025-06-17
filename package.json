@@ -14,13 +14,20 @@
     "test:bridge": "cd tests && node unified-bridge-test.js",
     "test:brop": "cd tests && node quick-brop-test.js",
     "test:cdp": "cd tests && node quick-cdp-test.js",
-    "test:wikipedia": "cd tests && node playwright-wikipedia-test.js"
+    "test:wikipedia": "cd tests && node playwright-wikipedia-test.js",
+    "test:stagehand": "node tests/test-stagehand-simple.js",
+    "test:stagehand:full": "node tests/test-stagehand-cdp.js",
+    "test:stagehand:ai": "node tests/test-stagehand-ai-features.js",
+    "test:stagehand:minimal": "node tests/test-stagehand-minimal.js"
   },
   "devDependencies": {
+    "@browserbasehq/stagehand": "^2.3.0",
     "@types/chrome": "^0.0.270",
+    "dotenv": "^16.5.0",
     "https-proxy-agent": "^7.0.6",
     "nodemon": "^3.0.2",
-    "proxy-agent": "^6.5.0"
+    "proxy-agent": "^6.5.0",
+    "zod": "^3.25.67"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",

@@ -14,6 +14,9 @@ class MainBackground {
 		this.connectionStatus = "disconnected";
 		this.isConnected = false;
 		this.enabled = true;
+		this.pingInterval = null;
+		this.lastPongTime = Date.now();
+		this.storageInterval = null;
 
 		this.bridgeUrl = "ws://localhost:9224"; // Extension server port
 
@@ -32,6 +35,7 @@ class MainBackground {
 
 		this.setupErrorHandlers();
 		this.setupPopupMessageHandler();
+		this.setupStorageKeepalive();
 		this.connectToBridge();
 	}
 
@@ -200,6 +204,7 @@ class MainBackground {
 				this.isConnected = true;
 				this.connectionStatus = "connected";
 				this.reconnectAttempts = 0;
+				this.startKeepalive();
 			};
 
 			this.bridgeSocket.onmessage = (event) => {
@@ -210,6 +215,7 @@ class MainBackground {
 				console.log("🔌 Bridge connection closed");
 				this.isConnected = false;
 				this.connectionStatus = "disconnected";
+				this.stopKeepalive();
 				this.scheduleReconnect();
 			};
 
@@ -246,6 +252,11 @@ class MainBackground {
 
 			if (messageType === "welcome") {
 				console.log("👋 Bridge welcome:", message.message);
+				return;
+			}
+
+			if (messageType === "pong") {
+				this.lastPongTime = Date.now();
 				return;
 			}
 
@@ -343,6 +354,123 @@ class MainBackground {
 			this.bridgeSocket.send(JSON.stringify(message));
 		} else {
 			console.error("Cannot send to bridge: not connected");
+		}
+	}
+
+	startKeepalive() {
+		console.log("🏓 Starting keepalive ping/pong mechanism");
+		
+		// Clear any existing interval
+		this.stopKeepalive();
+		
+		// Send ping every 5 seconds
+		this.pingInterval = setInterval(() => {
+			if (this.isConnected && this.bridgeSocket) {
+				// Check if we received a pong recently (within 15 seconds)
+				const timeSinceLastPong = Date.now() - this.lastPongTime;
+				if (timeSinceLastPong > 15000) {
+					console.warn("⚠️ No pong received for 15 seconds, reconnecting...");
+					this.bridgeSocket.close();
+					return;
+				}
+				
+				// Send ping
+				this.sendToBridge({ type: "ping", timestamp: Date.now() });
+			}
+		}, 5000);
+	}
+
+	stopKeepalive() {
+		if (this.pingInterval) {
+			clearInterval(this.pingInterval);
+			this.pingInterval = null;
+			console.log("🏓 Stopped keepalive ping/pong");
+		}
+	}
+
+	setupStorageKeepalive() {
+		console.log("💾 Setting up storage-based keepalive");
+		
+		// Set up storage heartbeat - update every 30 seconds
+		this.storageInterval = setInterval(async () => {
+			try {
+				const result = await chrome.storage.local.get(['heartbeatCounter']);
+				const counter = (result.heartbeatCounter || 0) + 1;
+				
+				await chrome.storage.local.set({
+					heartbeat: Date.now(),
+					heartbeatCounter: counter,
+					extensionActive: true,
+					connectionStatus: this.connectionStatus,
+					isConnected: this.isConnected
+				});
+				
+				// Log every 10th heartbeat to avoid spam
+				if (counter % 10 === 0) {
+					console.log(`💓 Storage heartbeat #${counter}`);
+				}
+			} catch (error) {
+				console.error("Error updating storage heartbeat:", error);
+			}
+		}, 30000); // Every 30 seconds
+		
+		// Listen for storage changes (including from content scripts or popup)
+		chrome.storage.onChanged.addListener((changes, namespace) => {
+			if (namespace === 'local') {
+				// Handle external ping requests
+				if (changes.externalPing) {
+					console.log('📨 External ping received:', changes.externalPing.newValue);
+					this.handleExternalPing();
+				}
+				
+				// Handle wakeup requests
+				if (changes.wakeupRequest) {
+					console.log('⏰ Wakeup request received');
+					this.handleWakeupRequest();
+				}
+			}
+		});
+		
+		// Initial heartbeat
+		chrome.storage.local.set({
+			heartbeat: Date.now(),
+			heartbeatCounter: 0,
+			extensionStarted: Date.now()
+		});
+	}
+
+	async handleExternalPing() {
+		// Respond to external pings to confirm service worker is alive
+		try {
+			await chrome.storage.local.set({
+				pongResponse: Date.now(),
+				serviceWorkerActive: true,
+				lastPingHandled: Date.now()
+			});
+			
+			// If not connected, try to reconnect
+			if (!this.isConnected) {
+				console.log("🔄 External ping triggered reconnection attempt");
+				this.connectToBridge();
+			}
+		} catch (error) {
+			console.error("Error handling external ping:", error);
+		}
+	}
+
+	async handleWakeupRequest() {
+		// Handle wakeup requests - can be triggered by popup or content scripts
+		console.log("☕ Service worker wakeup requested");
+		
+		// Update status
+		await chrome.storage.local.set({
+			wakeupResponse: Date.now(),
+			serviceWorkerAwake: true
+		});
+		
+		// Ensure connections are active
+		if (!this.isConnected) {
+			this.connectToBridge();
 		}
 	}
 
