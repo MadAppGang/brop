@@ -98,6 +98,31 @@ pnpm run debug:workflow   # Full debug cycle:
 
 ## CDP Traffic Analysis
 
+### Real-time CDP Logging
+
+The bridge server now includes comprehensive CDP message logging:
+
+```bash
+# View last 50 CDP messages in pretty format
+pnpm run debug:cdp
+
+# View all CDP logs as JSON
+pnpm run cdp:logs
+
+# Export CDP logs for analysis
+pnpm run cdp:logs:export
+
+# View logs with custom options
+node tools/cdp-log-viewer.js -l 100 -f pretty
+```
+
+#### CDP Log Endpoints
+
+- **HTTP API**: `http://localhost:9222/cdp-logs`
+- **Query Parameters**: 
+  - `limit`: Number of logs to return
+  - `format`: `json` (default) or `jsonl`
+
 ### Capturing CDP Traffic
 
 ```bash
@@ -105,7 +130,10 @@ pnpm run debug:workflow   # Full debug cycle:
 export CDP_DUMP_FILE="reports/cdp_dump_native.jsonl"
 pnpm run capture:cdp:native
 
-# Capture bridge CDP traffic
+# Capture bridge CDP traffic (from logs)
+pnpm run cdp:logs:export
+
+# Or capture during test run
 export CDP_DUMP_FILE="reports/cdp_dump_bridge.jsonl"
 pnpm run capture:cdp:bridge
 ```
@@ -114,7 +142,7 @@ pnpm run capture:cdp:bridge
 
 ```bash
 # Compare two CDP dumps
-pnpm run compare:cdp
+pnpm run cdp:analyze
 
 # Or manually:
 node tools/cdp-traffic-analyzer.js native.jsonl bridge.jsonl output.html

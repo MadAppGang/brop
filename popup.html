@@ -491,6 +491,16 @@
             font-weight: 600;
             line-height: 1;
         }
+        
+        .log-item .badge.badge-cdp {
+            background-color: hsl(217, 91%, 60%);
+            color: white;
+        }
+        
+        .log-item .badge.badge-cdp-event {
+            background-color: hsl(262, 83%, 58%);
+            color: white;
+        }
 
         .log-item .time {
             color: var(--muted-foreground);
@@ -653,6 +663,16 @@
 
             <!-- Call Logs Tab -->
             <div id="call-logs" class="tab-content section">
+                <div class="filters">
+                    <div class="select-wrapper" style="grid-column: span 3;">
+                        <select id="log-type-filter" class="select">
+                            <option value="all">All Types</option>
+                            <option value="BROP">BROP Commands</option>
+                            <option value="CDP">CDP Commands</option>
+                            <option value="CDP_EVENT">CDP Events</option>
+                        </select>
+                    </div>
+                </div>
                 
                 <div class="log-list" id="logs-container">
                     <div class="empty-logs">No call logs yet. Make some API calls to see them here.</div>

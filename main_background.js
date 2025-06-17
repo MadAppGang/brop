@@ -40,6 +40,18 @@ class MainBackground {
 	}
 
 	forwardCDPEvent(event) {
+		// Log CDP event to BROP server logs
+		if (this.bropServer && event.method) {
+			this.bropServer.logCall(
+				event.method,
+				"CDP_EVENT",
+				event.params,
+				null, // Events don't have results
+				null, // No error for events
+				0     // Events are instant
+			);
+		}
+		
 		// Forward CDP events from real Chrome to bridge clients
 		if (this.isConnected && this.bridgeSocket) {
 			try {
@@ -323,14 +335,73 @@ class MainBackground {
 		);
 		console.log("🎭 Full CDP message:", message);
 
+		// Log CDP command to BROP server logs
+		if (this.bropServer) {
+			this.bropServer.logCall(
+				message.method || "unknown_cdp_method",
+				"CDP",
+				message.params,
+				null, // Result will be logged when response comes
+				null, // No error yet
+				null  // Duration will be calculated later
+			);
+		}
+
 		try {
 			// Use the CDP server to process the command
 			await this.cdpServer.processCDPCommand(message, (response) => {
 				console.log("🎭 CDP command response:", response);
+				
+				// Log CDP response to BROP server logs
+				if (this.bropServer && response.type === "response") {
+					// Find the original log entry and update it
+					const logs = this.bropServer.callLogs;
+					const logEntry = logs.find(log => 
+						log.method === message.method && 
+						!log.result && 
+						!log.error &&
+						log.type === "CDP"
+					);
+					
+					if (logEntry) {
+						// Update the existing entry with result/error
+						if (response.error) {
+							logEntry.error = JSON.stringify(response.error);
+							logEntry.success = false;
+						} else {
+							logEntry.result = JSON.stringify(response.result);
+							logEntry.success = true;
+						}
+						logEntry.duration = Date.now() - logEntry.timestamp;
+						
+						// Save updated logs
+						this.bropServer.saveSettings();
+					}
+				}
+				
 				this.sendToBridge(response);
 			});
 		} catch (error) {
 			console.error("🎭 Error in processBROPCDPCommand:", error);
+			
+			// Log CDP error to BROP server logs
+			if (this.bropServer) {
+				const logs = this.bropServer.callLogs;
+				const logEntry = logs.find(log => 
+					log.method === message.method && 
+					!log.result && 
+					!log.error &&
+					log.type === "CDP"
+				);
+				
+				if (logEntry) {
+					logEntry.error = error.message;
+					logEntry.success = false;
+					logEntry.duration = Date.now() - logEntry.timestamp;
+					this.bropServer.saveSettings();
+				}
+			}
+			
 			this.sendToBridge({
 				type: "response",
 				id: message.id,

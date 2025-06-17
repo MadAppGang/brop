@@ -18,7 +18,13 @@
     "test:stagehand": "node tests/test-stagehand-simple.js",
     "test:stagehand:full": "node tests/test-stagehand-cdp.js",
     "test:stagehand:ai": "node tests/test-stagehand-ai-features.js",
-    "test:stagehand:minimal": "node tests/test-stagehand-minimal.js"
+    "test:stagehand:minimal": "node tests/test-stagehand-minimal.js",
+    "test:cdp:logging": "node tests/test-cdp-logging.js",
+    "cdp:logs": "node tools/cdp-log-viewer.js",
+    "cdp:logs:pretty": "node tools/cdp-log-viewer.js -f pretty",
+    "cdp:logs:export": "node tools/cdp-log-viewer.js -l 0 -f jsonl -o reports/cdp_dump_bridge.jsonl",
+    "cdp:analyze": "node tools/cdp-traffic-analyzer.js reports/cdp_dump_native.jsonl reports/cdp_dump_bridge.jsonl reports/cdp_comparison.html",
+    "debug:cdp": "pnpm run cdp:logs:pretty -l 50"
   },
   "devDependencies": {
     "@browserbasehq/stagehand": "^2.3.0",

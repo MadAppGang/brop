@@ -76,6 +76,14 @@ class BROPPopup {
 				this.wakeupServiceWorker();
 			});
 		}
+		
+		// Log type filter
+		const logTypeFilter = document.getElementById("log-type-filter");
+		if (logTypeFilter) {
+			logTypeFilter.addEventListener("change", () => {
+				this.updateConsolePreview();
+			});
+		}
 	}
 
 	async toggleService() {
@@ -366,14 +374,23 @@ class BROPPopup {
 			console.warn("logs-container element not found");
 			return;
 		}
+		
+		// Apply filter
+		const logTypeFilter = document.getElementById("log-type-filter");
+		const filterValue = logTypeFilter ? logTypeFilter.value : "all";
+		
+		let filteredLogs = logs;
+		if (filterValue !== "all") {
+			filteredLogs = logs.filter(log => log.type === filterValue);
+		}
 
-		if (logs.length === 0) {
+		if (filteredLogs.length === 0) {
 			logsContainer.innerHTML =
-				'<div class="empty-logs">No call logs yet. Make some API calls to see them here.</div>';
+				'<div class="empty-logs">No logs found for the selected filter.</div>';
 			return;
 		}
 
-		const entries = logs
+		const entries = filteredLogs
 			.slice(-10)
 			.map((log, index) => {
 				const time = new Date(log.timestamp || Date.now()).toLocaleTimeString();
@@ -382,6 +399,17 @@ class BROPPopup {
 				const checkIcon = `<svg class="icon-check-small" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
       </svg>`;
+				
+				// Format the type badge with appropriate color
+				let badgeClass = "badge";
+				let badgeText = log.type || "BROP";
+				
+				if (log.type === "CDP") {
+					badgeClass += " badge-cdp";
+				} else if (log.type === "CDP_EVENT") {
+					badgeClass += " badge-cdp-event";
+					badgeText = "CDP Event";
+				}
 
 				return `<div class="log-item ${status}" data-log-index="${index}" data-log-id="${log.id || index}">
         <div class="checkbox-container">
@@ -391,7 +419,7 @@ class BROPPopup {
         </div>
         <span class="type">${log.method || "Unknown"}</span>
         <span class="status">${statusText}</span>
-        <span class="badge">${log.type || "BROP"}</span>
+        <span class="${badgeClass}">${badgeText}</span>
         <span class="time">${time}</span>
       </div>`;
 			})
@@ -407,10 +435,11 @@ class BROPPopup {
 
 		// Add click event listeners to log entries
 		const logItems = logsContainer.querySelectorAll(".log-item");
+		const displayedLogs = filteredLogs.slice(-10);
 		for (let index = 0; index < logItems.length; index++) {
 			const entry = logItems[index];
 			entry.addEventListener("click", () => {
-				const logData = logs[logs.length - 10 + index]; // Get the actual log data
+				const logData = displayedLogs[index]; // Get the actual log data from filtered list
 				this.openLogDetailView(logData);
 			});
 		}
@@ -444,12 +473,14 @@ class BROPPopup {
 		).toLocaleString();
 		const duration = logData.duration ? `${logData.duration}ms` : "N/A";
 		const status = logData.error ? "ERROR" : "SUCCESS";
+		const logType = logData.type || "BROP";
+		const typeColor = logType === "CDP" ? "#2196F3" : logType === "CDP_EVENT" ? "#9C27B0" : "#4CAF50";
 
 		detailWindow.document.write(`
       <!DOCTYPE html>
       <html>
       <head>
-        <title>BROP Log Details - ${logData.method || "Unknown"}</title>
+        <title>${logType} Log Details - ${logData.method || "Unknown"}</title>
         <style>
           body { 
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
@@ -534,7 +565,7 @@ class BROPPopup {
             <div class="info-value">${logData.method || "N/A"}</div>
             
             <div class="info-label">Type:</div>
-            <div class="info-value">${logData.type || "N/A"}</div>
+            <div class="info-value"><span style="background-color: ${typeColor}; color: white; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">${logType}</span></div>
             
             <div class="info-label">Timestamp:</div>
             <div class="info-value">${timestamp}</div>
@@ -552,7 +583,7 @@ class BROPPopup {
 						? `
         <div class="section">
           <h2>Parameters</h2>
-          <pre>${JSON.stringify(logData.params, null, 2)}</pre>
+          <pre>${typeof logData.params === 'string' ? logData.params : JSON.stringify(logData.params, null, 2)}</pre>
         </div>
         `
 						: ""
@@ -563,7 +594,7 @@ class BROPPopup {
 						? `
         <div class="section">
           <h2>Result</h2>
-          <pre>${JSON.stringify(logData.result, null, 2)}</pre>
+          <pre>${typeof logData.result === 'string' ? logData.result : JSON.stringify(logData.result, null, 2)}</pre>
         </div>
         `
 						: ""

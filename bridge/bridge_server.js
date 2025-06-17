@@ -152,6 +152,11 @@ class UnifiedBridgeServer {
 		// Logs for debugging
 		this.logs = [];
 		this.maxLogs = 1000;
+		
+		// CDP message logging
+		this.cdpLogs = [];
+		this.maxCdpLogs = 5000;
+		this.cdpLoggingEnabled = true;
 
 		// Table logger
 		this.logger = new TableLogger({
@@ -314,6 +319,34 @@ class UnifiedBridgeServer {
 
 			res.writeHead(200);
 			res.end(JSON.stringify(response, null, 2));
+		} else if (pathname === "/cdp-logs") {
+			// Return CDP traffic logs
+			const urlParams = new URLSearchParams(url.parse(req.url).query);
+			const limit = Number.parseInt(urlParams.get("limit")) || this.cdpLogs.length;
+			const format = urlParams.get("format") || "json";
+			const logsToReturn = this.cdpLogs.slice(-limit);
+
+			if (format === "jsonl") {
+				// Return as JSONL format for CDP traffic analyzer
+				res.setHeader("Content-Type", "application/x-ndjson");
+				res.writeHead(200);
+				const jsonlContent = logsToReturn.map(log => JSON.stringify({
+					direction: log.direction,
+					timestamp: log.timestamp,
+					cdp_data: log.data
+				})).join('\n');
+				res.end(jsonlContent);
+			} else {
+				// Return as JSON
+				const response = {
+					total: this.cdpLogs.length,
+					returned: logsToReturn.length,
+					logs: logsToReturn,
+					cdpLoggingEnabled: this.cdpLoggingEnabled
+				};
+				res.writeHead(200);
+				res.end(JSON.stringify(response, null, 2));
+			}
 		} else {
 			res.writeHead(404);
 			res.end(JSON.stringify({ error: "Not found" }));
@@ -536,6 +569,20 @@ class UnifiedBridgeServer {
 			const sessionId = data.sessionId;
 
 			this.logger.logSuccess("CDP", method, `${clientId}:${messageId}`);
+			
+			// Log CDP request
+			if (this.cdpLoggingEnabled) {
+				this.logCdpMessage({
+					direction: 'client_to_server',
+					timestamp: new Date().toISOString(),
+					clientId: clientId,
+					messageId: messageId,
+					method: method,
+					sessionId: sessionId,
+					data: data,
+					type: 'request'
+				});
+			}
 
 			const clientInfo = this.cdpClients.get(clientId);
 			if (!clientInfo) {
@@ -687,6 +734,21 @@ class UnifiedBridgeServer {
 						if (requestInfo.sessionId) {
 							cdpResponse.sessionId = requestInfo.sessionId;
 						}
+						
+						// Log CDP response
+						if (this.cdpLoggingEnabled) {
+							this.logCdpMessage({
+								direction: 'server_to_client',
+								timestamp: new Date().toISOString(),
+								clientId: requestInfo.clientId,
+								messageId: requestId,
+								method: requestInfo.method,
+								sessionId: requestInfo.sessionId,
+								data: cdpResponse,
+								type: 'response'
+							});
+						}
+						
 						requestInfo.originalClient.send(JSON.stringify(cdpResponse));
 					}
 				}
@@ -807,17 +869,59 @@ class UnifiedBridgeServer {
 			const mainClient = this.getMainBrowserClient();
 			if (mainClient) {
 				mainClient.ws.send(messageStr);
+				
+				// Log CDP event
+				if (this.cdpLoggingEnabled) {
+					this.logCdpMessage({
+						direction: 'server_to_client',
+						timestamp: new Date().toISOString(),
+						clientId: 'main',
+						messageId: null,
+						method: method,
+						sessionId: cdpEventMessage.sessionId,
+						data: cdpEventMessage,
+						type: 'event'
+					});
+				}
 			}
 		} else if (targetId) {
 			// Target-specific events route to session client
 			const sessionClient = this.getSessionClientForTarget(targetId);
 			if (sessionClient) {
 				sessionClient.ws.send(messageStr);
+				
+				// Log CDP event
+				if (this.cdpLoggingEnabled) {
+					this.logCdpMessage({
+						direction: 'server_to_client',
+						timestamp: new Date().toISOString(),
+						clientId: sessionClient.clientId || 'session',
+						messageId: null,
+						method: method,
+						sessionId: cdpEventMessage.sessionId,
+						data: cdpEventMessage,
+						type: 'event'
+					});
+				}
 			} else {
 				// Fallback to main client
 				const mainClient = this.getMainBrowserClient();
 				if (mainClient) {
 					mainClient.ws.send(messageStr);
+					
+					// Log CDP event fallback
+					if (this.cdpLoggingEnabled) {
+						this.logCdpMessage({
+							direction: 'server_to_client',
+							timestamp: new Date().toISOString(),
+							clientId: 'main_fallback',
+							messageId: null,
+							method: method,
+							sessionId: cdpEventMessage.sessionId,
+							data: cdpEventMessage,
+							type: 'event'
+						});
+					}
 				}
 			}
 		}
@@ -868,6 +972,16 @@ class UnifiedBridgeServer {
 				.toString(16)
 				.toUpperCase(),
 		).join("");
+	}
+	
+	logCdpMessage(logEntry) {
+		// Add CDP message to log
+		this.cdpLogs.push(logEntry);
+		
+		// Keep only the last maxCdpLogs entries
+		if (this.cdpLogs.length > this.maxCdpLogs) {
+			this.cdpLogs.splice(0, this.cdpLogs.length - this.maxCdpLogs);
+		}
 	}
 
 	async shutdown() {
