@@ -114,6 +114,24 @@ Add to your MCP configuration:
 - **Server Mode**: When port 9225 is free, starts full BROP bridge servers
 - **Relay Mode**: When port 9225 is occupied, connects as client to existing server
 
+**Robustness & Recovery:**
+
+- **Auto-Reconnection**: Automatically attempts to reconnect to the BROP server (3 attempts) if the connection is lost.
+- **Zombie Process Cleanup**: Use the `--restart-on-error` flag to automatically kill zombie processes on ports 9225/9224/9222 and restart the server if initialization fails.
+
+**Example Config with Restart:**
+```json
+{
+  "mcp-brop": {
+    "command": "npx",
+    "args": [
+      "@borgius/brop-mcp@latest",
+      "--restart-on-error"
+    ]
+  }
+}
+```
+
 **Available Tools:** `brop_navigate`, `brop_get_page_content`, `brop_get_simplified_content`, `brop_execute_script`, `brop_click_element`, `brop_type_text`, `brop_create_page`, `brop_close_tab`, `brop_list_tabs`, `brop_activate_tab`, `brop_get_server_status`, `brop_start_console_capture`, `brop_get_console_logs`, `brop_clear_console_logs`, `brop_stop_console_capture`
 
 See **[MCP_README.md](MCP_README.md)** for complete MCP documentation.
