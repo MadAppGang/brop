@@ -203,25 +203,63 @@ class BROPMCPServer {
 		this.log("Initializing MCP Server...");
 
 		try {
-			// Check if port 9224 is available (extension port)
-			const extensionPortAvailable = await this.checkPortAvailability(9224);
+			// Check if BROP server port (9225) is occupied
+			const bropPortAvailable = await this.checkPortAvailability(9225);
 
-			if (!extensionPortAvailable) {
-				// Extension port is occupied - bridge server is already running
-				this.log("Port 9224 is occupied - bridge server already running");
-				this.log("Starting in RELAY MODE");
-				await this.startRelayMode();
-			} else {
-				// No bridge server running - start our own
-				this.log("Port 9224 is available - no bridge server running");
-				this.log("Starting in SERVER MODE");
-				await this.startServerMode();
+			if (!bropPortAvailable) {
+				// Port 9225 is occupied - assume BROP server is running and try to connect
+				this.log(
+					"Port 9225 is occupied - attempting to connect to existing BROP server",
+				);
+
+				try {
+					await this.connectToBROPServer();
+					this.log("Successfully connected to existing BROP server");
+
+					// Also try to connect to CDP if available
+					const cdpPortAvailable = await this.checkPortAvailability(9222);
+					if (!cdpPortAvailable) {
+						try {
+							await this.connectToCDPServer();
+							this.log("Successfully connected to existing CDP server");
+						} catch (e) {
+							this.log(
+								`Warning: Could not connect to CDP server: ${e.message}`,
+							);
+						}
+					}
+
+					this.isServerMode = false;
+					this.isInitialized = true;
+					this.log("MCP Server initialized in RELAY mode");
+					return;
+				} catch (error) {
+					this.log(
+						`Failed to connect to existing server on port 9225: ${error.message}`,
+					);
+					// If we can't connect to the occupied port, we can't start our own server either
+					throw new Error(
+						"Port 9225 is occupied but cannot connect to BROP server",
+					);
+				}
 			}
 
+			// Port 9225 is free. Check extension port 9224 just in case.
+			const extensionPortAvailable = await this.checkPortAvailability(9224);
+			if (!extensionPortAvailable) {
+				this.log(
+					"Port 9224 is occupied but 9225 is free. Cannot start server.",
+				);
+				throw new Error("Port 9224 is occupied");
+			}
+
+			// No existing server found - start our own
+			this.log("No existing BROP server found - starting new instance");
+			this.log("Starting in SERVER MODE");
+			await this.startServerMode();
+
 			this.isInitialized = true;
-			this.log(
-				`MCP Server initialized in ${this.isServerMode ? "SERVER" : "RELAY"} mode`,
-			);
+			this.log("MCP Server initialized in SERVER mode");
 		} catch (error) {
 			this.log(`MCP initialization failed: ${error.message}`);
 			throw error;
