@@ -217,5 +217,6 @@ secrets.txt
 dist/
 build/
 out/
+brop-extension*.zip
 
 stagehand_src

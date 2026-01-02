@@ -7,11 +7,15 @@
  */
 
 import net from "node:net";
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import WebSocket from "ws";
 import { z } from "zod";
 import { UnifiedBridgeServer } from "./bridge_server.js";
+
+const execAsync = promisify(exec);
 
 class BROPMCPServer {
 	constructor() {
@@ -23,11 +27,88 @@ class BROPMCPServer {
 		this.isInitialized = false;
 		this.cdpSessionId = null;
 		this.cdpMessageCounter = 1;
+		this.reconnectAttempts = 0;
+		this.maxReconnectAttempts = 3;
+		this.isShuttingDown = false;
 	}
 
 	log(message) {
 		// Log to stderr to avoid interfering with STDIO transport
 		console.error(`[BROP-MCP] ${new Date().toISOString()} ${message}`);
+	}
+
+	/**
+	 * Kill process listening on a specific port
+	 */
+	async killPort(port) {
+		try {
+			this.log(`Attempting to kill process on port ${port}...`);
+
+			if (process.platform === "win32") {
+				try {
+					const { stdout } = await execAsync(`netstat -ano | findstr :${port}`);
+					const lines = stdout.trim().split(/[\r\n]+/);
+
+					let killed = false;
+					for (const line of lines) {
+						const parts = line.trim().split(/\s+/);
+						// netstat -ano output format:
+						// Proto  Local Address          Foreign Address        State           PID
+						// TCP    0.0.0.0:9225           0.0.0.0:0              LISTENING       1234
+
+						const localAddr = parts[1];
+						const pid = parts[parts.length - 1];
+
+						// Ensure we match the exact port and have a valid PID
+						if (
+							localAddr &&
+							localAddr.endsWith(`:${port}`) &&
+							pid &&
+							/^\d+$/.test(pid)
+						) {
+							try {
+								await execAsync(`taskkill /F /PID ${pid}`);
+								this.log(`Successfully killed process ${pid} on port ${port}`);
+								killed = true;
+							} catch (e) {
+								this.log(`Failed to kill process ${pid}: ${e.message}`);
+							}
+						}
+					}
+
+					if (killed) await this.sleep(1000);
+					else this.log(`No matching process found on port ${port}`);
+				} catch (e) {
+					// findstr returns error if no match found
+					this.log(`No process found on port ${port}`);
+				}
+			} else {
+				// Unix/Linux/macOS implementation
+				try {
+					const { stdout } = await execAsync(`lsof -i :${port} -t`);
+					const pids = stdout.trim().split(/\s+/);
+
+					if (pids.length > 0 && pids[0]) {
+						for (const pid of pids) {
+							if (pid) {
+								await execAsync(`kill -9 ${pid}`);
+								this.log(`Successfully killed process ${pid} on port ${port}`);
+							}
+						}
+						// Wait a moment for port to be freed
+						await this.sleep(1000);
+					}
+				} catch (e) {
+					// lsof returns error if no match found
+					this.log(`No process found on port ${port}`);
+				}
+			}
+		} catch (error) {
+			// Ignore errors if no process found or other issues
+			this.log(
+				`Note: Could not kill process on port ${port}: ${error.message}`,
+			);
+		}
 	}
 
 	/**
@@ -114,20 +195,34 @@ class BROPMCPServer {
 		return new Promise((resolve, reject) => {
 			const ws = new WebSocket("ws://localhost:9225?name=mcp-stdio");
 
+			// Add connection timeout
+			const timeout = setTimeout(() => {
+				ws.close();
+				reject(new Error("Connection timeout"));
+			}, 2000);
+
 			ws.on("open", () => {
+				clearTimeout(timeout);
 				this.log("Connected to BROP server as relay client");
 				this.bropClient = ws;
+				this.reconnectAttempts = 0; // Reset attempts on successful connection
 				resolve();
 			});
 
 			ws.on("error", (error) => {
+				clearTimeout(timeout);
 				this.log(`Failed to connect to BROP server: ${error.message}`);
 				reject(error);
 			});
 
 			ws.on("close", () => {
+				clearTimeout(timeout); // Ensure timeout is cleared on close too
 				this.log("Connection to BROP server closed");
 				this.bropClient = null;
+				
+				if (!this.isShuttingDown) {
+					this.handleConnectionLoss();
+				}
 			});
 
 			ws.on("message", (message) => {
@@ -143,6 +238,48 @@ class BROPMCPServer {
 		});
 	}
 
+	async handleConnectionLoss() {
+		if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+			this.log(`Max reconnect attempts (${this.maxReconnectAttempts}) reached.`);
+			
+			if (process.argv.includes("--restart-on-error")) {
+				this.log("Restart-on-error enabled. Restarting BROP server...");
+				try {
+					await this.killPort(9225);
+					await this.killPort(9224);
+					await this.killPort(9222);
+					
+					await this.startServerMode();
+					this.log("Successfully restarted in SERVER mode");
+				} catch (error) {
+					this.log(`Failed to restart server: ${error.message}`);
+				}
+			} else {
+				this.log("Please restart the MCP server or check BROP server status.");
+			}
+			return;
+		}
+
+		this.reconnectAttempts++;
+		const delay = 1000 * this.reconnectAttempts;
+		this.log(`Attempting to reconnect (${this.reconnectAttempts}/${this.maxReconnectAttempts}) in ${delay}ms...`);
+		
+		await this.sleep(delay);
+		
+		try {
+			await this.connectToBROPServer();
+		} catch (error) {
+			// Error is already logged in connectToBROPServer
+			// The promise rejection will be caught here, but we rely on the 'close' event or next retry
+			// Actually, if connectToBROPServer fails, it rejects. 
+			// If it rejects, we should probably trigger the next retry or handle it.
+			// But connectToBROPServer creates a NEW WebSocket. If that fails (error event), 
+			// it might NOT emit 'close' depending on WS implementation, but usually 'error' is followed by 'close' or just error.
+			// Let's manually call handleConnectionLoss if it fails immediately.
+			this.handleConnectionLoss();
+		}
+	}
+
 	/**
 	 * Connect to existing CDP server as a client
 	 */
@@ -152,18 +289,27 @@ class BROPMCPServer {
 				"ws://localhost:9222/devtools/browser/mcp-client",
 			);
 
+			// Add connection timeout
+			const timeout = setTimeout(() => {
+				ws.close();
+				reject(new Error("Connection timeout"));
+			}, 2000);
+
 			ws.on("open", () => {
+				clearTimeout(timeout);
 				this.log("Connected to CDP server as relay client");
 				this.cdpClient = ws;
 				resolve();
 			});
 
 			ws.on("error", (error) => {
+				clearTimeout(timeout);
 				this.log(`Failed to connect to CDP server: ${error.message}`);
 				reject(error);
 			});
 
 			ws.on("close", () => {
+				clearTimeout(timeout);
 				this.log("Connection to CDP server closed");
 				this.cdpClient = null;
 			});
@@ -237,6 +383,22 @@ class BROPMCPServer {
 					this.log(
 						`Failed to connect to existing server on port 9225: ${error.message}`,
 					);
+
+					if (process.argv.includes("--restart-on-error")) {
+						this.log("Restart-on-error enabled. Killing existing process on port 9225...");
+						await this.killPort(9225);
+						// Also kill 9224 and 9222 to be safe as they are part of the bridge
+						await this.killPort(9224);
+						await this.killPort(9222);
+
+						// Now try to start server mode
+						this.log("Starting new BROP server instance...");
+						await this.startServerMode();
+						this.isInitialized = true;
+						this.log("MCP Server initialized in SERVER mode (after cleanup)");
+						return;
+					}
+
 					// If we can't connect to the occupied port, we can't start our own server either
 					throw new Error(
 						"Port 9225 is occupied but cannot connect to BROP server",
@@ -635,6 +797,7 @@ class BROPMCPServer {
 
 	async shutdown() {
 		this.log("Shutting down BROP MCP Server...");
+		this.isShuttingDown = true;
 
 		if (this.bridgeServer) {
 			await this.bridgeServer.shutdown();
