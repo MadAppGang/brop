@@ -119,19 +119,21 @@ class BROPMCPServer {
 		return new Promise((resolve) => {
 			const server = net.createServer();
 
-			server.listen(port, () => {
-				server.close(() => {
-					resolve(true); // Port is available
-				});
-			});
-
-			server.on("error", (err) => {
+			server.once("error", (err) => {
 				if (err.code === "EADDRINUSE") {
 					resolve(false); // Port is occupied
 				} else {
 					resolve(false); // Other error, assume port is not available
 				}
 			});
+
+			server.once("listening", () => {
+				server.close(() => {
+					resolve(true); // Port is available
+				});
+			});
+
+			server.listen(port, "127.0.0.1");
 		});
 	}
 
@@ -412,6 +414,21 @@ class BROPMCPServer {
 				this.log(
 					"Port 9224 is occupied but 9225 is free. Cannot start server.",
 				);
+				
+				if (process.argv.includes("--restart-on-error")) {
+					this.log("Restart-on-error enabled. Killing existing process on port 9224...");
+					await this.killPort(9224);
+					// Also kill 9222 to be safe
+					await this.killPort(9222);
+					
+					// Now try to start server mode
+					this.log("Starting new BROP server instance...");
+					await this.startServerMode();
+					this.isInitialized = true;
+					this.log("MCP Server initialized in SERVER mode (after cleanup)");
+					return;
+				}
+
 				throw new Error("Port 9224 is occupied");
 			}
 
