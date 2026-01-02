@@ -1,6 +1,6 @@
 {
 	"name": "@borgius/brop-mcp",
-	"version": "2.7.7",
+	"version": "2.7.8",
 	"description": "Browser Remote Operations Protocol with multiplexed CDP relay support",
 	"type": "module",
 	"main": "background.js",
