@@ -2,6 +2,43 @@
 
 The MCP-BROP server provides AI agents with comprehensive browser automation capabilities through the Model Context Protocol (MCP). This documentation is specifically designed for AI agents to understand and use the browser automation tools effectively.
 
+## Installation & Usage
+
+### Quick Start with npx (Recommended)
+
+```bash
+npx mcp-brop@latest
+```
+
+### VS Code / Claude Desktop Configuration
+
+Add to your MCP settings:
+
+```json
+{
+  "servers": {
+    "mcp-brop": {
+      "command": "npx",
+      "args": [
+        "mcp-brop@latest"
+      ]
+    }
+  }
+}
+```
+
+### Installation as Dependency
+
+```bash
+npm install mcp-brop
+# or
+pnpm add mcp-brop
+```
+
+### Chrome Extension Requirement
+
+The MCP server requires the BROP Chrome extension to be installed. Install it from the [Chrome Web Store](https://chromewebstore.google.com/detail/browser-remote-operations/olbecmikepkjffhkidaecjlbhhcdgeki).
+
 ## Overview
 
 MCP-BROP bridges Chrome browser automation with AI agents using the official MCP SDK. It provides both high-level browser automation tools and low-level Chrome DevTools Protocol (CDP) access.
@@ -10,7 +47,7 @@ MCP-BROP bridges Chrome browser automation with AI agents using the official MCP
 
 - **Dual-Mode Operation**: Automatically detects and switches between server and relay modes
 - **Session Management**: Handles browser connection and session lifecycle
-- **Error Recovery**: Built-in retry logic and connection management
+- **Error Recovery**: Built-in retry logic, auto-reconnection (3 attempts), and optional process restart
 - **Console Log Capture**: Explicit console log collection with Chrome Debugger API
 - **Full JavaScript Execution**: Complete JavaScript evaluation with async/await support
 - **Content Extraction**: Advanced content extraction with CSS selectors for automation
@@ -24,15 +61,39 @@ AI Agent ←→ MCP Server ←→ Bridge Server ←→ Chrome Extension ←→ B
 
 ### Modes
 
-1. **Server Mode**: When no existing bridge server is detected (port 9225 free)
+The server automatically determines the best mode of operation:
+
+1. **Relay Mode**: When an existing, functional BROP server is detected on port 9225
+   - Connects as a client to the existing server
+   - Verifies server health before connecting
+   - Shares browser access with other clients
+   - Efficient resource usage
+
+2. **Server Mode**: When port 9225 is free
    - Starts full BROP infrastructure
    - Manages Chrome extension connection
    - Handles all browser communication
 
-2. **Relay Mode**: When existing bridge server is detected (port 9225 occupied)
-   - Connects as client to existing server
-   - Shares browser access with other clients
-   - Efficient resource usage
+**Note**: If port 9225 is occupied but the server is not responsive, the MCP server will fail to start unless the `--restart-on-error` flag is used.
+
+### Configuration & Arguments
+
+You can pass arguments to the MCP server to control its behavior:
+
+- `--restart-on-error`: If the server cannot start due to occupied ports (zombie processes) or loses connection to the BROP server after 3 retries, it will kill the existing processes (ports 9225, 9224, 9222) and start a fresh instance.
+
+**Example VS Code Config:**
+```json
+{
+  "mcp-brop": {
+    "command": "npx",
+    "args": [
+      "mcp-brop@latest",
+      "--restart-on-error"
+    ]
+  }
+}
+```
 
 ## Available Tools
 

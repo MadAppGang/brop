@@ -322,6 +322,15 @@ class UnifiedBridgeServer {
 			this.bropServer.on("connection", (ws, req) =>
 				this.handleBropClient(ws, req),
 			);
+			this.bropServer.on("error", (error) => {
+				if (error.code === 'EADDRINUSE') {
+					// This is expected if another server is running
+					// We don't want to crash here, but we should probably re-throw 
+					// so the caller knows we couldn't start
+					throw error;
+				}
+				this.logger.logError("BROP", "server", "start", error.message);
+			});
 			this.log("🔧 BROP Server started on ws://localhost:9225");
 
 			// Start Extension server (port 9224 - extension connects here)
@@ -333,12 +342,21 @@ class UnifiedBridgeServer {
 			this.extensionServer.on("connection", (ws, req) =>
 				this.handleExtensionClient(ws, req),
 			);
+			this.extensionServer.on("error", (error) => {
+				if (error.code === 'EADDRINUSE') throw error;
+				this.logger.logError("EXT", "server", "start", error.message);
+			});
 			this.log("🔌 Extension Server started on ws://localhost:9224");
 
 			// Start HTTP server for CDP discovery
 			this.httpServer = http.createServer((req, res) =>
 				this.handleHttpRequest(req, res),
 			);
+			
+			this.httpServer.on("error", (error) => {
+				if (error.code === 'EADDRINUSE') throw error;
+				this.logger.logError("HTTP", "server", "start", error.message);
+			});
 
 			// Start CDP server (port 9222 - CDP clients like Playwright)
 			this.cdpServer = new WebSocketServer({
@@ -348,6 +366,9 @@ class UnifiedBridgeServer {
 			this.cdpServer.on("connection", (ws, req) =>
 				this.handleCdpClient(ws, req),
 			);
+			this.cdpServer.on("error", (error) => {
+				this.logger.logError("CDP", "server", "start", error.message);
+			});
 
 			await new Promise((resolve, reject) => {
 				this.httpServer.on("error", reject);

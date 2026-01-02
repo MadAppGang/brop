@@ -1,6 +1,6 @@
 {
 	"name": "@madappgang/brop-mcp",
-	"version": "2.7.1",
+	"version": "2.7.2",
 	"description": "Model Context Protocol server for Browser Remote Operations Protocol (BROP) - Control Chrome browser remotely via MCP",
 	"type": "module",
 	"main": "mcp-server.js",
